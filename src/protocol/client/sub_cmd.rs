@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use protocol::{Command, CommandError};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
@@ -10,7 +11,7 @@ pub struct SubCommand {
 }
 
 impl Command for SubCommand {
-    fn into_vec(self) -> Result<Vec<u8>, CommandError> {
+    fn into_vec(self) -> Result<Bytes, CommandError> {
         let qg = if let Some(queue_group) = self.queue_group {
             format!("\t{}", queue_group)
         } else {
@@ -19,7 +20,7 @@ impl Command for SubCommand {
 
         Ok(format!("SUB\t{}{}\t{}", self.subject, qg, self.sid)
             .as_bytes()
-            .to_vec())
+            .into())
     }
 }
 

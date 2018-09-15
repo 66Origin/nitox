@@ -1,5 +1,7 @@
+use bytes::Bytes;
+
 pub trait Command {
-    fn into_vec(self) -> Result<Vec<u8>, CommandError>;
+    fn into_vec(self) -> Result<Bytes, CommandError>;
 }
 
 impl Command {
@@ -34,5 +36,7 @@ mod error;
 pub use self::error::*;
 
 pub mod client;
-pub mod op;
 pub mod server;
+
+mod op;
+pub use self::op::*;

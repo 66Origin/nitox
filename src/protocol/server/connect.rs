@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use protocol::{Command, CommandError};
 use serde_json as json;
 
@@ -28,9 +29,9 @@ pub struct Connect {
 }
 
 impl Command for Connect {
-    fn into_vec(self) -> Result<Vec<u8>, CommandError> {
+    fn into_vec(self) -> Result<Bytes, CommandError> {
         Ok(format!("CONNECT\t{}\r\n", json::to_string(&self)?)
             .as_bytes()
-            .to_vec())
+            .into())
     }
 }

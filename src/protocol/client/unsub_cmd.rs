@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use protocol::{Command, CommandError};
 
 #[derive(Debug, Clone, Builder)]
@@ -7,13 +8,13 @@ pub struct UnsubCommand {
 }
 
 impl Command for UnsubCommand {
-    fn into_vec(self) -> Result<Vec<u8>, CommandError> {
+    fn into_vec(self) -> Result<Bytes, CommandError> {
         let mm = if let Some(max_msgs) = self.max_msgs {
             format!("\t{}", max_msgs)
         } else {
             "".into()
         };
 
-        Ok(format!("UNSUB\t{}{}\r\n", self.sid, mm).as_bytes().to_vec())
+        Ok(format!("UNSUB\t{}{}\r\n", self.sid, mm).as_bytes().into())
     }
 }

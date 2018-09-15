@@ -11,7 +11,7 @@ pub struct Message {
 }
 
 impl Command for Message {
-    fn into_vec(self) -> Result<Vec<u8>, CommandError> {
+    fn into_vec(self) -> Result<Bytes, CommandError> {
         let rt = if let Some(reply_to) = self.reply_to {
             format!("\t{}", reply_to)
         } else {
@@ -30,7 +30,7 @@ impl Command for Message {
         bytes.put(self.payload);
         bytes.put("\r\n");
 
-        Ok(bytes.to_vec())
+        Ok(bytes.freeze())
     }
 }
 

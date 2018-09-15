@@ -1,6 +1,7 @@
 use super::client::*;
 use super::server::*;
 use super::{Command, CommandError};
+use bytes::{BufMut, Bytes, BytesMut};
 
 /// Abstraction over NATS protocol messages
 pub enum Op {
@@ -27,7 +28,7 @@ pub enum Op {
 }
 
 impl Op {
-    fn to_bytes(self) -> Result<Vec<u8>, CommandError> {
+    pub fn to_bytes(self) -> Result<Bytes, CommandError> {
         Ok(match self {
             Op::INFO(si) => si.into_vec()?,
             Op::CONNECT(con) => con.into_vec()?,
@@ -35,10 +36,15 @@ impl Op {
             Op::SUB(sc) => sc.into_vec()?,
             Op::UNSUB(uc) => uc.into_vec()?,
             Op::MSG(msg) => msg.into_vec()?,
-            Op::PING => format!("PING\r\n").as_bytes().to_vec(),
-            Op::PONG => format!("PONG\r\n").as_bytes().to_vec(),
-            Op::OK => format!("+OK\r\n").as_bytes().to_vec(),
-            Op::ERR(se) => format!("-ERR {}\r\n", se).as_bytes().to_vec(),
+            Op::PING => format!("PING\r\n").as_bytes().into(),
+            Op::PONG => format!("PONG\r\n").as_bytes().into(),
+            Op::OK => format!("+OK\r\n").as_bytes().into(),
+            Op::ERR(se) => format!("-ERR {}\r\n", se).as_bytes().into(),
         })
+    }
+
+    pub fn from_bytes(buf: &mut BytesMut) -> Result<Self, CommandError> {
+        // TODO: Decode stuff :O
+        unimplemented!()
     }
 }

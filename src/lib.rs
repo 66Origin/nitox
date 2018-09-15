@@ -29,5 +29,11 @@ extern crate tokio_timer;
 #[macro_use]
 mod error;
 
+// TODO: Add tokio-codec traits impl
+// TODO: Manage connection to server via tcp
+// TODO: Add SSL connection to server
+// TODO: dunno lol
+
 pub use self::error::*;
+pub mod codec;
 pub mod protocol;

@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use protocol::{Command, CommandError};
 use serde_json as json;
 
@@ -30,9 +31,9 @@ pub struct ServerInfo {
 }
 
 impl Command for ServerInfo {
-    fn into_vec(self) -> Result<Vec<u8>, CommandError> {
+    fn into_vec(self) -> Result<Bytes, CommandError> {
         Ok(format!("INFO\t{}\r\n", json::to_string(&self)?)
             .as_bytes()
-            .to_vec())
+            .into())
     }
 }
