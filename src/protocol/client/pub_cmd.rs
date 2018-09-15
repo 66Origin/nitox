@@ -1,5 +1,6 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{Command, CommandError};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
 #[derive(Debug, Clone, Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
@@ -28,6 +29,13 @@ impl Command for PubCommand {
 }
 
 impl PubCommandBuilder {
+    pub fn auto_reply_to(mut self) -> Self {
+        let mut rng = thread_rng();
+        let inbox = rng.sample_iter(&Alphanumeric).take(16).collect();
+        self.reply_to = Some(Some(inbox));
+        self
+    }
+
     fn validate(&self) -> Result<(), String> {
         if let Some(ref subj) = self.subject {
             check_cmd_arg!(subj, "subject");
