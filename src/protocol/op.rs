@@ -1,14 +1,12 @@
-use super::client::*;
-use super::server::*;
-use super::{Command, CommandError};
-use bytes::{BufMut, Bytes, BytesMut};
+use super::{commands::*, Command, CommandError};
+use bytes::Bytes;
 
 /// Abstraction over NATS protocol messages
 pub enum Op {
     /// [SERVER] Sent to client after initial TCP/IP connection
     INFO(ServerInfo),
     /// [CLIENT] Sent to server to specify connection information
-    CONNECT(Connect),
+    CONNECT(ConnectCommand),
     /// [CLIENT] Publish a message to a subject, with optional reply subject
     PUB(PubCommand),
     /// [CLIENT] Subscribe to a subject (or subject wildcard)
@@ -27,8 +25,20 @@ pub enum Op {
     ERR(ServerError),
 }
 
+macro_rules! op_from_cmd {
+    ($buf:ident, $cmd:path, $op:path) => {{
+        use protocol::CommandError;
+
+        match $cmd(&$buf) {
+            Ok(c) => Ok(Some($op(c))),
+            Err(CommandError::IncompleteCommandError) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        }
+    }};
+}
+
 impl Op {
-    pub fn to_bytes(self) -> Result<Bytes, CommandError> {
+    pub fn into_bytes(self) -> Result<Bytes, CommandError> {
         Ok(match self {
             Op::INFO(si) => si.into_vec()?,
             Op::CONNECT(con) => con.into_vec()?,
@@ -36,15 +46,30 @@ impl Op {
             Op::SUB(sc) => sc.into_vec()?,
             Op::UNSUB(uc) => uc.into_vec()?,
             Op::MSG(msg) => msg.into_vec()?,
-            Op::PING => format!("PING\r\n").as_bytes().into(),
-            Op::PONG => format!("PONG\r\n").as_bytes().into(),
-            Op::OK => format!("+OK\r\n").as_bytes().into(),
+            Op::PING => "PING\r\n".into(),
+            Op::PONG => "PONG\r\n".into(),
+            Op::OK => "+OK\r\n".into(),
             Op::ERR(se) => format!("-ERR {}\r\n", se).as_bytes().into(),
         })
     }
 
-    pub fn from_bytes(buf: &mut BytesMut) -> Result<Self, CommandError> {
-        // TODO: Decode stuff :O
-        unimplemented!()
+    pub fn from_bytes(buf: &[u8]) -> Result<Option<Self>, CommandError> {
+        match buf {
+            ServerInfo::CMD_NAME => op_from_cmd!(buf, ServerInfo::try_parse, Op::INFO),
+            ConnectCommand::CMD_NAME => op_from_cmd!(buf, ConnectCommand::try_parse, Op::CONNECT),
+            Message::CMD_NAME => op_from_cmd!(buf, Message::try_parse, Op::MSG),
+            PubCommand::CMD_NAME => op_from_cmd!(buf, PubCommand::try_parse, Op::PUB),
+            SubCommand::CMD_NAME => op_from_cmd!(buf, SubCommand::try_parse, Op::SUB),
+            UnsubCommand::CMD_NAME => op_from_cmd!(buf, UnsubCommand::try_parse, Op::UNSUB),
+            b"+OK" => Ok(Some(Op::OK)),
+            b"-ERR" => Ok(Some(Op::ERR(ServerError::from(String::from_utf8(buf[1..].to_vec())?)))),
+            _ => {
+                if buf.len() > 7 {
+                    Err(CommandError::CommandNotFoundOrSupported)
+                } else {
+                    Ok(None)
+                }
+            }
+        }
     }
 }

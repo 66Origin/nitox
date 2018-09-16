@@ -7,10 +7,13 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 pub struct SubCommand {
     pub subject: String,
     pub queue_group: Option<String>,
+    #[builder(default = "self.default_sid()?")]
     pub sid: String,
 }
 
 impl Command for SubCommand {
+    const CMD_NAME: &'static [u8] = b"SUB";
+
     fn into_vec(self) -> Result<Bytes, CommandError> {
         let qg = if let Some(queue_group) = self.queue_group {
             format!("\t{}", queue_group)
@@ -18,13 +21,45 @@ impl Command for SubCommand {
             "".into()
         };
 
-        Ok(format!("SUB\t{}{}\t{}", self.subject, qg, self.sid)
-            .as_bytes()
-            .into())
+        Ok(format!("SUB\t{}{}\t{}", self.subject, qg, self.sid).as_bytes().into())
+    }
+
+    fn try_parse(buf: &[u8]) -> Result<Self, CommandError> {
+        let len = buf.len();
+
+        if buf[len - 2..] != [b'\r', b'\n'] {
+            return Err(CommandError::IncompleteCommandError);
+        }
+
+        let whole_command = ::std::str::from_utf8(&buf[..len - 2])?;
+        let mut split = whole_command.split_whitespace();
+        let cmd = split.next().ok_or_else(|| CommandError::CommandMalformed)?;
+        // Check if we're still on the right command
+        if cmd.as_bytes() != Self::CMD_NAME {
+            return Err(CommandError::CommandMalformed);
+        }
+
+        // Extract subject
+        let subject: String = split.next().ok_or_else(|| CommandError::CommandMalformed)?.into();
+
+        let sid: String = split.next_back().ok_or_else(|| CommandError::CommandMalformed)?.into();
+
+        let queue_group: Option<String> = split.next().map(|v| v.into());
+
+        Ok(SubCommand {
+            subject,
+            queue_group,
+            sid,
+        })
     }
 }
 
 impl SubCommandBuilder {
+    #[allow(dead_code)]
+    fn default_sid(&self) -> Result<String, String> {
+        Ok(thread_rng().sample_iter(&Alphanumeric).take(8).collect())
+    }
+
     fn validate(&self) -> Result<(), String> {
         if let Some(ref subj) = self.subject {
             check_cmd_arg!(subj, "subject");
@@ -39,23 +74,12 @@ impl SubCommandBuilder {
         Ok(())
     }
 
-    pub fn build(mut self) -> Result<SubCommand, String> {
-        let _ = self.validate()?;
-
-        if self.sid.is_none() {
-            let mut rng = thread_rng();
-            let sid: String = rng.sample_iter(&Alphanumeric).take(8).collect();
-
-            self.sid = Some(sid);
-        }
+    pub fn build(self) -> Result<SubCommand, String> {
+        self.validate()?;
 
         Ok(SubCommand {
             subject: Clone::clone(self.subject.as_ref().ok_or("subject must be initialized")?),
-            queue_group: Clone::clone(
-                self.queue_group
-                    .as_ref()
-                    .ok_or("queue_group must be initialized")?,
-            ),
+            queue_group: Clone::clone(self.queue_group.as_ref().ok_or("queue_group must be initialized")?),
             sid: Clone::clone(self.sid.as_ref().ok_or("sid must be initialized")?),
         })
     }

@@ -35,6 +35,8 @@ tokio-tcp = "^0.1.1"
 tokio-timer = "^0.2.6"
 rand = "^0.5.5"
 derive_builder = "^0.6.0"
+tokio-tls = "^0.2.0"
+native-tls = "^0.2.1"
 
 [dev-dependencies]
 tokio = "0.1.8"
