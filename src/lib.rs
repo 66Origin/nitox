@@ -28,6 +28,7 @@ extern crate tokio_io;
 extern crate tokio_tcp;
 extern crate tokio_timer;
 extern crate tokio_tls;
+extern crate url;
 
 #[macro_use]
 mod error;

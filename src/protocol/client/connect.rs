@@ -2,14 +2,14 @@ use bytes::Bytes;
 use protocol::{Command, CommandError};
 use serde_json as json;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, Builder)]
 pub struct ConnectCommand {
     /// Turns on +OK protocol acknowledgements.
-    verbose: bool,
+    pub verbose: bool,
     /// Turns on additional strict format checking, e.g. for properly formed subjects
-    pedantic: bool,
+    pub pedantic: bool,
     /// Indicates whether the client requires an SSL connection.
-    tls_required: bool,
+    pub tls_required: bool,
     /// Client authorization token (if auth_required is set)
     auth_token: Option<String>,
     /// Connection username (if auth_required is set)
@@ -17,11 +17,13 @@ pub struct ConnectCommand {
     /// Connection password (if auth_required is set)
     pass: Option<String>,
     /// Optional client name
-    name: Option<String>,
+    pub name: Option<String>,
     /// The implementation language of the client.
-    lang: String,
+    #[builder(default = "\"rust\"")]
+    pub lang: &'static str,
     /// The version of the client.
-    version: String,
+    #[builder(default = "self.default_ver()?")]
+    pub version: String,
     /// optional int. Sending 0 (or absent) indicates client supports original protocol. Sending 1 indicates that the
     /// client supports dynamic reconfiguration of cluster topology changes by asynchronously receiving INFO messages
     /// with known servers it can reconnect to.
@@ -30,6 +32,14 @@ pub struct ConnectCommand {
     /// connection to its own subscriptions. Clients should set this to true only for server supporting this feature,
     /// which is when proto in the INFO protocol is set to at least 1.
     echo: Option<bool>,
+}
+impl ConnectCommandBuilder {
+    fn default_ver(&self) -> Result<String, String> {
+        match ::std::env::var("CARGO_PKG_VERSION") {
+            Ok(v) => Ok(v),
+            Err(_) => Err("Package version not found in env".into()),
+        }
+    }
 }
 
 impl Command for ConnectCommand {
@@ -50,6 +60,6 @@ impl Command for ConnectCommand {
             return Err(CommandError::CommandMalformed);
         }
 
-        Ok(json::from_slice(&buf[7..len - 2])?)
+        Ok(json::from_slice(&buf[7..len - 2].to_vec())?)
     }
 }

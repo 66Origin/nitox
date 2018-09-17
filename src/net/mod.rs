@@ -1,2 +1,2 @@
-pub mod connect;
-pub mod reconnect;
+pub(crate) mod connect;
+pub(crate) mod reconnect;
