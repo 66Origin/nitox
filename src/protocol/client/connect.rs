@@ -19,8 +19,8 @@ pub struct ConnectCommand {
     /// Optional client name
     pub name: Option<String>,
     /// The implementation language of the client.
-    #[builder(default = "\"rust\"")]
-    pub lang: &'static str,
+    #[builder(default = "self.default_lang()?")]
+    pub lang: String,
     /// The version of the client.
     #[builder(default = "self.default_ver()?")]
     pub version: String,
@@ -40,6 +40,10 @@ impl ConnectCommandBuilder {
             Err(_) => Err("Package version not found in env".into()),
         }
     }
+
+    fn default_lang(&self) -> Result<String, String> {
+        Ok(String::from("rust"))
+    }
 }
 
 impl Command for ConnectCommand {
@@ -49,7 +53,7 @@ impl Command for ConnectCommand {
         Ok(format!("CONNECT\t{}\r\n", json::to_string(&self)?).as_bytes().into())
     }
 
-    fn try_parse(buf: &[u8]) -> Result<Self, CommandError> {
+    fn try_parse(buf: &[u8]) -> Result<ConnectCommand, CommandError> {
         let len = buf.len();
 
         if buf[len - 2..] != [b'\r', b'\n'] {
@@ -60,6 +64,6 @@ impl Command for ConnectCommand {
             return Err(CommandError::CommandMalformed);
         }
 
-        Ok(json::from_slice(&buf[7..len - 2].to_vec())?)
+        Ok(json::from_slice(&buf[7..len - 2])?)
     }
 }

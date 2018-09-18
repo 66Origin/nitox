@@ -1,22 +1,24 @@
 use error::NatsError;
 use futures::{
-    future::{err as FutErr, ok as FutOk, Either},
+    future::{self, Either},
+    prelude::*,
     Future,
 };
 use net::{
     connect::*,
     reconnect::{Reconnect, ReconnectError},
 };
-use protocol::{commands::*, CommandError};
+use protocol::{commands::*, CommandError, Op};
 use std::net::SocketAddr;
 use std::str::FromStr;
-use tokio_io::{AsyncRead, AsyncWrite};
-use url::{Host, Url};
+use std::sync::Arc;
+use url::Url;
 
-type InnerNatsConnection = Either<
-    Box<dyn Future<Item = NatsConnection, Error = NatsError>>,
-    Box<dyn Future<Item = TLSNatsConnection, Error = NatsError>>,
->;
+#[derive(Debug, Clone)]
+struct NatsClientInner {
+    connection: Arc<NatsConnection>,
+}
+// TODO: try writing abstraction to solve borrowing problem? I have no clue. Sleep time now
 
 #[derive(Debug, Default, Clone, Builder)]
 pub struct NatsClientOptions {
@@ -25,35 +27,75 @@ pub struct NatsClientOptions {
 }
 
 #[derive(Debug)]
-pub struct NatsClient<T: AsyncRead + AsyncWrite> {
-    connection: T,
+pub struct NatsClient {
+    opts: NatsClientOptions,
+    inner: NatsClientInner,
 }
 
-impl<T: AsyncRead + AsyncWrite> NatsClient<T> {
+impl NatsClient {
     pub fn from_options(opts: NatsClientOptions) -> impl Future<Item = Self, Error = NatsError> {
-        let NatsClientOptions {
-            cluster_uri,
-            connect_command,
-        } = opts;
+        let cluster_uri = opts.cluster_uri.clone();
+        let tls_required = opts.connect_command.tls_required.clone();
 
-        let cluster_sa = match SocketAddr::from_str(&cluster_uri) {
-            Ok(sa) => sa,
-            Err(e) => return FutErr(e.into()),
-        };
-
-        let nats_conn: InnerNatsConnection = if connect_command.tls_required {
-            match Url::parse(&cluster_uri) {
-                Ok(url) => match url.host_str() {
-                    Some(host) => Either::B(Box::new(connect_tls(host.to_string(), &cluster_sa))),
-                    None => return FutErr(NatsError::GenericError("Host is missing".into())),
+        future::result(SocketAddr::from_str(&cluster_uri))
+            .from_err()
+            .and_then(move |cluster_sa| {
+                if tls_required {
+                    match Url::parse(&cluster_uri) {
+                        Ok(url) => match url.host_str() {
+                            Some(host) => future::ok(Either::B(connect_tls(host.to_string(), &cluster_sa))),
+                            None => future::err(NatsError::TlsHostMissingError),
+                        },
+                        Err(e) => future::err(e.into()),
+                    }
+                } else {
+                    future::ok(Either::A(connect(&cluster_sa)))
+                }
+            }).and_then(|either| either)
+            .map(move |connection| NatsClient {
+                inner: NatsClientInner {
+                    connection: Arc::new(connection),
                 },
-                Err(e) => return FutErr(e.into()),
-            }
-        } else {
-            Either::A(Box::new(connect(&cluster_sa)))
-        };
-
-        // FIXME: NANI
-        nats_conn.and_then(move |connection| NatsClient { connection })
+                opts,
+            })
     }
+
+    /*pub fn publish(&self, cmd: PubCommand) -> impl Future<Item = NatsConnection, Error = NatsError> {
+        //let maybe_inbox = cmd.reply_to.clone();
+        //let conn = self.connection.borrow();
+        self.inner.send(Op::PUB(cmd)).into_future() /*.and_then(move |conn| {
+            if let Some(inbox) = maybe_inbox {
+                Either::A(
+                    conn.skip_while(move |op: &Op| {
+                        if let Op::MSG(msg) = op {
+                            if let Some(ref msg_inbox) = msg.reply_to {
+                                return Ok(msg_inbox != &inbox);
+                            }
+                        }
+
+                        Ok(true)
+                    }).take(1)
+                    .into_future()
+                    .map_err(|(e, _)| e)
+                    .and_then(|(op, _): (Option<Op>, _)| {
+                        if let Some(Op::MSG(msg)) = op {
+                            future::ok(Some(msg.clone()))
+                        } else {
+                            future::ok(None)
+                        }
+                    }),
+                )
+            } else {
+                Either::B(future::ok(None))
+            }
+        })*/
+    }*/
+
+    /*pub fn subscribe(&self, cmd: SubCommand) -> impl Future<Item = SubCommand, Error = NatsError> {
+        conn.send(Op::SUB(cmd.clone())).into_future().map(|_| cmd)
+    }
+
+    pub fn unsubscribe(&self, cmd: UnsubCommand) -> impl Future<Item = UnsubCommand, Error = NatsError> {
+        conn.send(Op::UNSUB(cmd.clone())).into_future().map(|_| cmd)
+    }*/
 }

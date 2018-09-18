@@ -20,6 +20,8 @@ pub enum NatsError {
     UTF8Error(::std::string::FromUtf8Error),
     #[fail(display = "TlsError: {}", _0)]
     TlsError(::native_tls::Error),
+    #[fail(display = "TlsHostMissingError: Host is missing, can't verify server identity")]
+    TlsHostMissingError,
     #[fail(display = "UrlParseError: {}", _0)]
     UrlParseError(::url::ParseError),
     #[fail(display = "AddrParseError: {}", _0)]

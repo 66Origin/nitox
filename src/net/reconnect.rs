@@ -33,7 +33,7 @@ pub(crate) enum ReconnectError {
 pub(crate) struct Reconnect<A, T, RE, CE> {
     state: Arc<RwLock<ReconnectState<T>>>,
     cluster: Vec<SocketAddr>,
-    #[allow(type_complexity)]
+    #[allow(unknown_lints, type_complexity)]
     work_fn: Arc<Fn(&T, A) -> Box<Future<Item = (), Error = RE> + Send> + Send + Sync>,
     conn_fn: Arc<Fn() -> Box<Future<Item = T, Error = CE> + Send> + Send + Sync>,
 }
