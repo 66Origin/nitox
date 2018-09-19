@@ -6,8 +6,9 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 #[builder(build_fn(skip))]
 pub struct SubCommand {
     pub subject: String,
+    #[builder(default)]
     pub queue_group: Option<String>,
-    #[builder(default = "self.default_sid()?")]
+    #[builder(default = "Ok(Self::generate_sid())")]
     pub sid: String,
 }
 
@@ -55,17 +56,16 @@ impl Command for SubCommand {
 }
 
 impl SubCommandBuilder {
-    #[allow(dead_code)]
-    fn default_sid(&self) -> Result<String, String> {
-        Ok(thread_rng().sample_iter(&Alphanumeric).take(8).collect())
+    pub fn generate_sid() -> String {
+        thread_rng().sample_iter(&Alphanumeric).take(8).collect()
     }
 
     fn validate(&self) -> Result<(), String> {
-        if let Some(ref subj) = self.subject {
+        if let Some(subj) = self.subject.as_ref() {
             check_cmd_arg!(subj, "subject");
         }
 
-        if let Some(ref qg_maybe) = self.queue_group {
+        if let Some(qg_maybe) = self.queue_group.as_ref() {
             if let Some(qg) = qg_maybe {
                 check_cmd_arg!(qg, "queue group");
             }

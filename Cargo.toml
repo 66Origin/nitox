@@ -2,8 +2,8 @@
 authors = ["Mathieu Amiot <mathieu.amiot@yellowinnovation.fr>"]
 categories = ["database"]
 description = "Async Client for NATS"
-documentation = "https://docs.rs/nats-rs"
-homepage = "https://github.com/YellowInnovation/nats-rs"
+documentation = "https://docs.rs/nitox"
+homepage = "https://github.com/YellowInnovation/nitox"
 include = [
     "**/*.rs",
     "Cargo.toml",
@@ -14,9 +14,9 @@ keywords = [
     "tokio",
 ]
 license = "MIT/Apache-2.0"
-name = "nats-rs"
+name = "nitox"
 readme = "README.md"
-repository = "https://github.com/YellowInnovation/nats-rs"
+repository = "https://github.com/YellowInnovation/nitox"
 version = "0.0.1"
 
 [dependencies]

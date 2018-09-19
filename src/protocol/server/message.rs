@@ -6,6 +6,7 @@ use protocol::{Command, CommandError};
 pub struct Message {
     pub subject: String,
     pub sid: String,
+    #[builder(default)]
     pub reply_to: Option<String>,
     pub payload: Bytes,
 }

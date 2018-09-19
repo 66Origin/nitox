@@ -26,6 +26,8 @@ pub enum NatsError {
     UrlParseError(::url::ParseError),
     #[fail(display = "AddrParseError: {}", _0)]
     AddrParseError(::std::net::AddrParseError),
+    #[fail(display = "InnerBrokenChain: the sender/receiver pair has been disconnected")]
+    InnerBrokenChain,
     #[fail(display = "GenericError: {}", _0)]
     GenericError(String),
 }
@@ -37,3 +39,9 @@ from_error!(::native_tls::Error, NatsError, NatsError::TlsError);
 from_error!(String, NatsError, NatsError::GenericError);
 from_error!(::url::ParseError, NatsError, NatsError::UrlParseError);
 from_error!(::std::net::AddrParseError, NatsError, NatsError::AddrParseError);
+
+impl<T> From<::futures::sync::mpsc::SendError<T>> for NatsError {
+    fn from(_: ::futures::sync::mpsc::SendError<T>) -> Self {
+        NatsError::InnerBrokenChain
+    }
+}

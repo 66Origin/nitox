@@ -4,6 +4,7 @@ use protocol::{Command, CommandError};
 #[derive(Debug, Clone, Builder)]
 pub struct UnsubCommand {
     pub sid: String,
+    #[builder(default)]
     pub max_msgs: Option<u32>,
 }
 

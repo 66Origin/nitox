@@ -6,6 +6,7 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct PubCommand {
     pub subject: String,
+    #[builder(default)]
     pub reply_to: Option<String>,
     pub payload: Bytes,
 }
@@ -77,9 +78,13 @@ impl Command for PubCommand {
 }
 
 impl PubCommandBuilder {
-    pub fn auto_reply_to(mut self) -> Self {
+    pub fn generate_reply_to() -> String {
         let mut rng = thread_rng();
-        let inbox = rng.sample_iter(&Alphanumeric).take(16).collect();
+        rng.sample_iter(&Alphanumeric).take(16).collect()
+    }
+
+    pub fn auto_reply_to(&mut self) -> &mut Self {
+        let inbox = Self::generate_reply_to();
         self.reply_to = Some(Some(inbox));
         self
     }

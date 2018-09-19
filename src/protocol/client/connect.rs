@@ -3,6 +3,7 @@ use protocol::{Command, CommandError};
 use serde_json as json;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, Builder)]
+#[builder(default)]
 pub struct ConnectCommand {
     /// Turns on +OK protocol acknowledgements.
     pub verbose: bool,

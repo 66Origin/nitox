@@ -2,6 +2,7 @@ use super::{commands::*, Command, CommandError};
 use bytes::Bytes;
 
 /// Abstraction over NATS protocol messages
+#[derive(Debug, Clone)]
 pub enum Op {
     /// [SERVER] Sent to client after initial TCP/IP connection
     INFO(ServerInfo),
