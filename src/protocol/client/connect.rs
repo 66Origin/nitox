@@ -22,6 +22,7 @@ pub struct ConnectCommand {
     pass: Option<String>,
     /// Optional client name
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(default = "self.default_name()?")]
     pub name: Option<String>,
     /// The implementation language of the client.
     #[builder(default = "self.default_lang()?", setter(into))]
@@ -41,6 +42,10 @@ pub struct ConnectCommand {
     echo: Option<bool>,
 }
 impl ConnectCommandBuilder {
+    fn default_name(&self) -> Result<Option<String>, String> {
+        Ok(Some("nitox".into()))
+    }
+
     fn default_ver(&self) -> Result<String, String> {
         match ::std::env::var("CARGO_PKG_VERSION") {
             Ok(v) => Ok(v),

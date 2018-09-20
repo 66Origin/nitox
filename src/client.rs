@@ -23,7 +23,7 @@ type NatsSink = stream::SplitSink<NatsConnection>;
 type NatsStream = stream::SplitStream<NatsConnection>;
 type NatsSubscriptionId = String;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct NatsClientSender {
     tx: mpsc::UnboundedSender<Op>,
     verbose: bool,
@@ -118,11 +118,13 @@ impl NatsClientMultiplexer {
 }
 
 #[derive(Debug, Default, Clone, Builder)]
+#[builder(setter(into))]
 pub struct NatsClientOptions {
     connect_command: ConnectCommand,
     cluster_uri: String,
 }
 
+#[derive(Debug)]
 pub struct NatsClient {
     opts: NatsClientOptions,
     tx: NatsClientSender,
@@ -150,6 +152,7 @@ impl NatsClient {
                 }
             }).and_then(|either| either)
             .map(move |connection| {
+                println!("creating connection {:?}", connection);
                 let (tx, stream) = NatsClientSender::new(connection);
                 let rx = NatsClientMultiplexer::new(stream);
                 NatsClient {
@@ -214,5 +217,39 @@ impl NatsClient {
                     .map(|(maybe_message, _)| maybe_message.unwrap())
                     .map_err(|_| NatsError::InnerBrokenChain)
             })
+    }
+}
+
+#[cfg(test)]
+mod client_test {
+    use super::*;
+    use futures::sync::oneshot;
+    use futures::{stream, Future, Sink, Stream};
+    use tokio;
+
+    fn run_and_wait<R, E, F>(f: F) -> Result<R, E>
+    where
+        F: Future<Item = R, Error = E> + Send + 'static,
+        R: Send + 'static,
+        E: Send + 'static,
+    {
+        let (tx, rx) = oneshot::channel();
+        tokio::run(f.then(|r| tx.send(r)));
+        rx.wait().expect("Cannot wait for a result")
+    }
+
+    #[test]
+    fn can_connect() {
+        let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
+        let options = NatsClientOptionsBuilder::default()
+            .connect_command(connect_cmd)
+            .cluster_uri("127.0.0.1:4222")
+            .build()
+            .unwrap();
+
+        let connection = NatsClient::from_options(options);
+        let connection_result = run_and_wait(connection);
+        println!("{:?}", connection_result);
+        assert!(connection_result.is_ok());
     }
 }
