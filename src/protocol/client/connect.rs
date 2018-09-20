@@ -68,3 +68,33 @@ impl Command for ConnectCommand {
         Ok(json::from_slice(&buf[7..len - 2])?)
     }
 }
+
+#[cfg(test)]
+mod connect_command_tests {
+    use super::{ConnectCommand, ConnectCommandBuilder};
+    use protocol::Command;
+
+    static DEFAULT_CONNECT: &'static [u8] = b"CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,\"name\":\"nitox\",\"lang\":\"rust\",\"version\":\"1.0.0\",\"protocol\":1}\r\n";
+
+    #[test]
+    fn it_parses() {
+        let parse_res = ConnectCommand::try_parse(DEFAULT_CONNECT);
+        assert!(parse_res.is_ok());
+    }
+
+    #[test]
+    fn it_stringifies() {
+        let cmd = ConnectCommandBuilder::default()
+            .lang("rust".into())
+            .version("1.0.0".into())
+            .name(Some("nitox".into()))
+            .build()
+            .unwrap();
+
+        let cmd_bytes_res = cmd.into_vec();
+        assert!(cmd_bytes_res.is_ok());
+        let cmd_bytes = cmd_bytes_res.unwrap();
+
+        assert_eq!(DEFAULT_CONNECT, cmd_bytes);
+    }
+}
