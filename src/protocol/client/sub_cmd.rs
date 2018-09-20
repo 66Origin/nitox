@@ -3,12 +3,12 @@ use protocol::{Command, CommandError};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
 #[derive(Debug, Clone, Builder)]
-#[builder(build_fn(skip))]
+#[builder(build_fn(validate = "Self::validate"))]
 pub struct SubCommand {
     pub subject: String,
     #[builder(default)]
     pub queue_group: Option<String>,
-    #[builder(default = "Ok(Self::generate_sid())")]
+    #[builder(default = "Self::generate_sid()")]
     pub sid: String,
 }
 
@@ -22,7 +22,9 @@ impl Command for SubCommand {
             "".into()
         };
 
-        Ok(format!("SUB\t{}{}\t{}", self.subject, qg, self.sid).as_bytes().into())
+        Ok(format!("SUB\t{}{}\t{}\r\n", self.subject, qg, self.sid)
+            .as_bytes()
+            .into())
     }
 
     fn try_parse(buf: &[u8]) -> Result<Self, CommandError> {
@@ -61,26 +63,48 @@ impl SubCommandBuilder {
     }
 
     fn validate(&self) -> Result<(), String> {
-        if let Some(subj) = self.subject.as_ref() {
+        if let Some(ref subj) = self.subject {
             check_cmd_arg!(subj, "subject");
         }
 
-        if let Some(qg_maybe) = self.queue_group.as_ref() {
-            if let Some(qg) = qg_maybe {
+        if let Some(ref qg_maybe) = self.queue_group {
+            if let Some(ref qg) = qg_maybe {
                 check_cmd_arg!(qg, "queue group");
             }
         }
 
         Ok(())
     }
+}
 
-    pub fn build(self) -> Result<SubCommand, String> {
-        self.validate()?;
+#[cfg(test)]
+mod sub_command_tests {
+    use super::{SubCommand, SubCommandBuilder};
+    use protocol::Command;
 
-        Ok(SubCommand {
-            subject: Clone::clone(self.subject.as_ref().ok_or("subject must be initialized")?),
-            queue_group: Clone::clone(self.queue_group.as_ref().ok_or("queue_group must be initialized")?),
-            sid: Clone::clone(self.sid.as_ref().ok_or("sid must be initialized")?),
-        })
+    static DEFAULT_SUB: &'static str = "SUB\tFOO\tpouet\r\n";
+
+    #[test]
+    fn it_parses() {
+        let parse_res = SubCommand::try_parse(DEFAULT_SUB.as_bytes());
+        assert!(parse_res.is_ok());
+        let cmd = parse_res.unwrap();
+        assert_eq!(&cmd.subject, "FOO");
+        assert_eq!(&cmd.sid, "pouet")
+    }
+
+    #[test]
+    fn it_stringifies() {
+        let cmd = SubCommandBuilder::default()
+            .subject("FOO".into())
+            .sid("pouet".into())
+            .build()
+            .unwrap();
+
+        let cmd_bytes_res = cmd.into_vec();
+        assert!(cmd_bytes_res.is_ok());
+        let cmd_bytes = cmd_bytes_res.unwrap();
+
+        assert_eq!(DEFAULT_SUB, cmd_bytes);
     }
 }

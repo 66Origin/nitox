@@ -24,10 +24,10 @@ pub struct ConnectCommand {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The implementation language of the client.
-    #[builder(default = "self.default_lang()?")]
+    #[builder(default = "self.default_lang()?", setter(into))]
     pub lang: String,
     /// The version of the client.
-    #[builder(default = "self.default_ver()?")]
+    #[builder(default = "self.default_ver()?", setter(into))]
     pub version: String,
     /// optional int. Sending 0 (or absent) indicates client supports original protocol. Sending 1 indicates that the
     /// client supports dynamic reconfiguration of cluster topology changes by asynchronously receiving INFO messages
@@ -86,13 +86,21 @@ mod connect_command_tests {
     fn it_parses() {
         let parse_res = ConnectCommand::try_parse(DEFAULT_CONNECT.as_bytes());
         assert!(parse_res.is_ok());
+        let cmd = parse_res.unwrap();
+        assert_eq!(cmd.verbose, false);
+        assert_eq!(cmd.pedantic, false);
+        assert_eq!(cmd.tls_required, false);
+        assert!(cmd.name.is_some());
+        assert_eq!(&cmd.name.unwrap(), "nitox");
+        assert_eq!(&cmd.lang, "rust");
+        assert_eq!(&cmd.version, "1.0.0");
     }
 
     #[test]
     fn it_stringifies() {
         let cmd = ConnectCommandBuilder::default()
-            .lang("rust".into())
-            .version("1.0.0".into())
+            .lang("rust")
+            .version("1.0.0")
             .name(Some("nitox".into()))
             .build()
             .unwrap();

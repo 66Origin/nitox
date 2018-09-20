@@ -4,10 +4,13 @@ use protocol::{Command, CommandError};
 #[derive(Debug, Clone, PartialEq, Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct Message {
+    #[builder(setter(into))]
     pub subject: String,
+    #[builder(setter(into))]
     pub sid: String,
     #[builder(default)]
     pub reply_to: Option<String>,
+    #[builder(setter(into))]
     pub payload: Bytes,
 }
 
@@ -37,12 +40,12 @@ impl Command for Message {
             return Err(CommandError::IncompleteCommandError);
         }
 
-        if let Some(payload_start) = buf[..len - 3].iter().position(|b| *b == b'\r') {
+        if let Some(payload_start) = buf[..len - 2].iter().position(|b| *b == b'\r') {
             if buf[payload_start + 1] != b'\n' {
                 return Err(CommandError::CommandMalformed);
             }
 
-            let payload: Bytes = buf[payload_start..len - 2].into();
+            let payload: Bytes = buf[payload_start + 2..len - 2].into();
 
             let whole_command = ::std::str::from_utf8(&buf[..payload_start])?;
             let mut split = whole_command.split_whitespace();
@@ -93,5 +96,40 @@ impl MessageBuilder {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod message_command_tests {
+    use super::{Message, MessageBuilder};
+    use protocol::Command;
+
+    static DEFAULT_MSG: &'static str = "MSG\tFOO\tpouet\t4\r\ntoto\r\n";
+
+    #[test]
+    fn it_parses() {
+        let parse_res = Message::try_parse(DEFAULT_MSG.as_bytes());
+        assert!(parse_res.is_ok());
+        let cmd = parse_res.unwrap();
+        assert!(cmd.reply_to.is_none());
+        assert_eq!(&cmd.subject, "FOO");
+        assert_eq!(&cmd.sid, "pouet");
+        assert_eq!(cmd.payload, "toto");
+    }
+
+    #[test]
+    fn it_stringifies() {
+        let cmd = MessageBuilder::default()
+            .subject("FOO")
+            .sid("pouet")
+            .payload("toto")
+            .build()
+            .unwrap();
+
+        let cmd_bytes_res = cmd.into_vec();
+        assert!(cmd_bytes_res.is_ok());
+        let cmd_bytes = cmd_bytes_res.unwrap();
+
+        assert_eq!(DEFAULT_MSG, cmd_bytes);
     }
 }

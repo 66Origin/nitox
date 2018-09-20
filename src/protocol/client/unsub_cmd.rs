@@ -3,6 +3,7 @@ use protocol::{Command, CommandError};
 
 #[derive(Debug, Clone, Builder)]
 pub struct UnsubCommand {
+    #[builder(setter(into))]
     pub sid: String,
     #[builder(default)]
     pub max_msgs: Option<u32>,
@@ -45,5 +46,33 @@ impl Command for UnsubCommand {
         };
 
         Ok(UnsubCommand { sid, max_msgs })
+    }
+}
+
+#[cfg(test)]
+mod unsub_command_tests {
+    use super::{UnsubCommand, UnsubCommandBuilder};
+    use protocol::Command;
+
+    static DEFAULT_UNSUB: &'static str = "UNSUB\tpouet\r\n";
+
+    #[test]
+    fn it_parses() {
+        let parse_res = UnsubCommand::try_parse(DEFAULT_UNSUB.as_bytes());
+        assert!(parse_res.is_ok());
+        let cmd = parse_res.unwrap();
+        assert_eq!(&cmd.sid, "pouet");
+        assert!(cmd.max_msgs.is_none());
+    }
+
+    #[test]
+    fn it_stringifies() {
+        let cmd = UnsubCommandBuilder::default().sid("pouet").build().unwrap();
+
+        let cmd_bytes_res = cmd.into_vec();
+        assert!(cmd_bytes_res.is_ok());
+        let cmd_bytes = cmd_bytes_res.unwrap();
+
+        assert_eq!(DEFAULT_UNSUB, cmd_bytes);
     }
 }

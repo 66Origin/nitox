@@ -5,9 +5,11 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 #[derive(Debug, Clone, Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct PubCommand {
+    #[builder(setter(into))]
     pub subject: String,
     #[builder(default)]
     pub reply_to: Option<String>,
+    #[builder(setter(into))]
     pub payload: Bytes,
 }
 
@@ -114,15 +116,18 @@ mod pub_command_tests {
     #[test]
     fn it_parses() {
         let parse_res = PubCommand::try_parse(DEFAULT_PUB.as_bytes());
-        println!("{:?}", parse_res);
         assert!(parse_res.is_ok());
+        let cmd = parse_res.unwrap();
+        assert_eq!(&cmd.subject, "FOO");
+        assert_eq!(&cmd.payload, "Hello NATS!");
+        assert!(cmd.reply_to.is_none());
     }
 
     #[test]
     fn it_stringifies() {
         let cmd = PubCommandBuilder::default()
-            .subject("FOO".into())
-            .payload("Hello NATS!".into())
+            .subject("FOO")
+            .payload("Hello NATS!")
             .build()
             .unwrap();
 

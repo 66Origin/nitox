@@ -33,8 +33,6 @@ extern crate url;
 #[macro_use]
 mod error;
 
-// TODO: Write client handling TCP stream
-// TODO: Handle TLS stream
 // TODO: Switch parsing to using `nom`
 
 pub use self::error::*;
