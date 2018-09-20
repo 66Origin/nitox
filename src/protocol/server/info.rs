@@ -23,19 +23,24 @@ pub struct ServerInfo {
     /// An optional unsigned integer (64 bits) representing the internal client identifier in the server. This can be
     /// used to filter client connections in monitoring, correlate with error logs, etc…
     #[builder(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     client_id: Option<u64>,
     /// If this is set, then the client should try to authenticate upon connect.
     #[builder(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     auth_required: Option<bool>,
     /// If this is set, then the client must perform the TLS/1.2 handshake. Note, this used to be ssl_required and has
     /// been updated along with the protocol from SSL to TLS.
     #[builder(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     tls_required: Option<bool>,
     /// If this is set, the client must provide a valid certificate during the TLS handshake.
     #[builder(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     tls_verify: Option<bool>,
     /// An optional list of server urls that a client can connect to.
     #[builder(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     connect_urls: Option<Vec<String>>,
 }
 

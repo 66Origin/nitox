@@ -37,12 +37,12 @@ impl Command for PubCommand {
             return Err(CommandError::IncompleteCommandError);
         }
 
-        if let Some(payload_start) = buf[..len - 3].iter().position(|b| *b == b'\r') {
+        if let Some(payload_start) = buf[..len - 2].iter().position(|b| *b == b'\r') {
             if buf[payload_start + 1] != b'\n' {
                 return Err(CommandError::CommandMalformed);
             }
 
-            let payload: Bytes = buf[payload_start..len - 2].into();
+            let payload: Bytes = buf[payload_start + 2..len - 2].into();
 
             let whole_command = ::std::str::from_utf8(&buf[..payload_start])?;
             let mut split = whole_command.split_whitespace();
@@ -101,5 +101,35 @@ impl PubCommandBuilder {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod pub_command_tests {
+    use super::{PubCommand, PubCommandBuilder};
+    use protocol::Command;
+
+    static DEFAULT_PUB: &'static str = "PUB\tFOO\t11\r\nHello NATS!\r\n";
+
+    #[test]
+    fn it_parses() {
+        let parse_res = PubCommand::try_parse(DEFAULT_PUB.as_bytes());
+        println!("{:?}", parse_res);
+        assert!(parse_res.is_ok());
+    }
+
+    #[test]
+    fn it_stringifies() {
+        let cmd = PubCommandBuilder::default()
+            .subject("FOO".into())
+            .payload("Hello NATS!".into())
+            .build()
+            .unwrap();
+
+        let cmd_bytes_res = cmd.into_vec();
+        assert!(cmd_bytes_res.is_ok());
+        let cmd_bytes = cmd_bytes_res.unwrap();
+
+        assert_eq!(DEFAULT_PUB, cmd_bytes);
     }
 }
