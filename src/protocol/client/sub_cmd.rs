@@ -5,10 +5,11 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 #[derive(Debug, Clone, Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct SubCommand {
+    #[builder(setter(into))]
     pub subject: String,
     #[builder(default)]
     pub queue_group: Option<String>,
-    #[builder(default = "Self::generate_sid()")]
+    #[builder(setter(into), default = "Self::generate_sid()")]
     pub sid: String,
 }
 
@@ -96,8 +97,8 @@ mod sub_command_tests {
     #[test]
     fn it_stringifies() {
         let cmd = SubCommandBuilder::default()
-            .subject("FOO".into())
-            .sid("pouet".into())
+            .subject("FOO")
+            .sid("pouet")
             .build()
             .unwrap();
 

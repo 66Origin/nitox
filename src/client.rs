@@ -1,23 +1,27 @@
 use bytes::Bytes;
-use error::NatsError;
+
 use futures::{
     future::{self, Either},
     prelude::*,
     stream,
     sync::mpsc,
-    Future,
+    task, Future,
 };
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    str::FromStr,
+    sync::{Arc, RwLock},
+};
+use tokio_executor;
+use url::Url;
+
+use error::NatsError;
 use net::{
     connect::*,
     reconnect::{Reconnect, ReconnectError},
 };
 use protocol::{commands::*, CommandError, Op};
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::{Arc, RwLock};
-use tokio_executor;
-use url::Url;
 
 type NatsSink = stream::SplitSink<NatsConnection>;
 type NatsStream = stream::SplitStream<NatsConnection>;
@@ -30,14 +34,13 @@ struct NatsClientSender {
 }
 
 impl NatsClientSender {
-    pub fn new(conn: NatsConnection) -> (Self, NatsStream) {
-        let (sink, stream): (NatsSink, NatsStream) = conn.split();
+    pub fn new(sink: NatsSink) -> Self {
         let (tx, rx) = mpsc::unbounded();
         let rx = rx.map_err(|_| NatsError::InnerBrokenChain);
         let work = sink.send_all(rx).map(|_| ()).map_err(|_| ());
         tokio_executor::spawn(work);
 
-        (NatsClientSender { tx, verbose: false }, stream)
+        NatsClientSender { tx, verbose: false }
     }
 
     #[allow(dead_code)]
@@ -59,44 +62,49 @@ impl NatsClientSender {
 
 #[derive(Debug)]
 struct NatsClientMultiplexer {
-    subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, mpsc::UnboundedSender<Op>>>>,
+    other_tx: Arc<mpsc::UnboundedSender<Op>>,
+    subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, mpsc::UnboundedSender<Message>>>>,
 }
 
 impl NatsClientMultiplexer {
-    pub fn new(stream: stream::SplitStream<NatsConnection>) -> Self {
-        let (tx, inner_rx) = mpsc::unbounded();
-
-        // Forward the whole TCP incoming stream to the above channel
-        let work_tx = stream.forward(tx).map(|_| ()).map_err(|_| ());
-        tokio_executor::spawn(work_tx);
-
-        let subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, mpsc::UnboundedSender<Op>>>> =
+    pub fn new(stream: NatsStream) -> (Self, mpsc::UnboundedReceiver<Op>) {
+        let subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, mpsc::UnboundedSender<Message>>>> =
             Arc::new(RwLock::new(HashMap::default()));
 
-        let stx_inner = subs_tx.clone();
+        let (other_tx, other_rx) = mpsc::unbounded();
+        let other_tx = Arc::new(other_tx);
+
+        let stx_inner = Arc::clone(&subs_tx);
+        let otx_inner = Arc::clone(&other_tx);
+
         // Here we filter the incoming TCP stream Messages by subscription ID and sending it to the appropriate Sender
-        let work_rx = inner_rx
-            .and_then(move |op| {
+        let work_tx = stream
+            .for_each(move |op| {
+                let hwnd = task::current();
+                println!("received op from raw stream {:?}", op);
                 match &op {
                     Op::MSG(msg) => {
                         if let Ok(stx) = stx_inner.read() {
                             if let Some(tx) = stx.get(&msg.sid) {
-                                let _ = tx.unbounded_send(op.clone());
+                                let _ = tx.unbounded_send(msg.clone());
                             }
                         }
                     }
-                    // Take care of the rest of the messages? Like ping and so on
-                    _ => {}
+                    // Forward the rest of the messages to the owning client
+                    op => {
+                        let _ = otx_inner.unbounded_send(op.clone());
+                    }
                 }
 
-                future::ok::<(), ()>(())
-            }).into_future()
-            .map(|_| ())
+                hwnd.notify();
+
+                future::ok::<(), NatsError>(())
+            }).map(|_| ())
             .map_err(|_| ());
 
-        tokio_executor::spawn(work_rx);
+        tokio_executor::spawn(work_tx);
 
-        NatsClientMultiplexer { subs_tx }
+        (NatsClientMultiplexer { subs_tx, other_tx }, other_rx)
     }
 
     pub fn for_sid(&self, sid: NatsSubscriptionId) -> impl Stream<Item = Message, Error = NatsError> {
@@ -105,15 +113,13 @@ impl NatsClientMultiplexer {
             subs.insert(sid.clone(), tx);
         }
 
-        rx.filter_map(move |op| {
-            if let Op::MSG(msg) = op {
-                if msg.sid == sid {
-                    return Some(msg);
-                }
-            }
+        rx.map_err(|_| NatsError::InnerBrokenChain)
+    }
 
-            None
-        }).map_err(|_| NatsError::InnerBrokenChain)
+    pub fn remove_sid(&self, sid: NatsSubscriptionId) {
+        if let Ok(mut subs) = self.subs_tx.write() {
+            subs.remove(&sid);
+        }
     }
 }
 
@@ -127,9 +133,18 @@ pub struct NatsClientOptions {
 #[derive(Debug)]
 pub struct NatsClient {
     opts: NatsClientOptions,
+    other_rx: mpsc::UnboundedReceiver<Op>,
     tx: NatsClientSender,
     rx: Arc<NatsClientMultiplexer>,
 }
+
+/*impl Stream for NatsClient {
+    type Item = Op;
+    type Error = NatsError;
+    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+        self.other_rx.poll().map_err(|_| NatsError::InnerBrokenChain)
+    }
+}*/
 
 impl NatsClient {
     pub fn from_options(opts: NatsClientOptions) -> impl Future<Item = Self, Error = NatsError> {
@@ -151,15 +166,19 @@ impl NatsClient {
                     future::ok(Either::A(connect(&cluster_sa)))
                 }
             }).and_then(|either| either)
-            .map(move |connection| {
-                println!("creating connection {:?}", connection);
-                let (tx, stream) = NatsClientSender::new(connection);
-                let rx = NatsClientMultiplexer::new(stream);
-                NatsClient {
+            .and_then(move |connection| {
+                let (sink, stream): (NatsSink, NatsStream) = connection.split();
+                let (rx, other_rx) = NatsClientMultiplexer::new(stream);
+                let tx = NatsClientSender::new(sink);
+
+                let client = NatsClient {
                     tx,
+                    other_rx,
                     rx: Arc::new(rx),
                     opts,
-                }
+                };
+
+                future::ok(client)
             })
     }
 
@@ -178,9 +197,11 @@ impl NatsClient {
         self.tx.send(Op::UNSUB(cmd)).map(|r| r).into_future()
     }
 
-    pub fn subscribe(&self, cmd: SubCommand) -> impl Stream<Item = Message, Error = NatsError> {
-        self.tx.send(Op::SUB(cmd.clone()));
-        self.rx.for_sid(cmd.sid)
+    pub fn subscribe(&self, cmd: SubCommand) -> impl Future<Item = impl Stream<Item = Message, Error = NatsError>> {
+        let inner_rx = self.rx.clone();
+        self.tx
+            .send(Op::SUB(cmd.clone()))
+            .and_then(move |_| future::ok(inner_rx.for_sid(cmd.sid)))
     }
 
     pub fn request(&self, subject: String, payload: Bytes) -> impl Future<Item = Message, Error = NatsError> {
@@ -213,6 +234,7 @@ impl NatsClient {
             .and_then(move |_| tx2.send(Op::PUB(pub_cmd)))
             .and_then(move |_| {
                 rx.for_sid(sid)
+                    .take(1)
                     .into_future()
                     .map(|(maybe_message, _)| maybe_message.unwrap())
                     .map_err(|_| NatsError::InnerBrokenChain)
@@ -224,18 +246,35 @@ impl NatsClient {
 mod client_test {
     use super::*;
     use futures::sync::oneshot;
-    use futures::{stream, Future, Sink, Stream};
+    use futures::{prelude::*, stream, Future, Sink, Stream};
     use tokio;
 
     fn run_and_wait<R, E, F>(f: F) -> Result<R, E>
     where
         F: Future<Item = R, Error = E> + Send + 'static,
-        R: Send + 'static,
-        E: Send + 'static,
+        R: ::std::fmt::Debug + Send + 'static,
+        E: ::std::fmt::Debug + Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
-        tokio::run(f.then(|r| tx.send(r)));
-        rx.wait().expect("Cannot wait for a result")
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.spawn(f.then(|r| tx.send(r).map_err(|_| panic!("Cannot send Result"))));
+        let result = rx.wait().expect("Cannot wait for a result");
+        let _ = runtime.shutdown_now().wait();
+        result
+    }
+
+    #[test]
+    fn can_connect_raw() {
+        let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
+        let options = NatsClientOptionsBuilder::default()
+            .connect_command(connect_cmd)
+            .cluster_uri("127.0.0.1:4222")
+            .build()
+            .unwrap();
+
+        let connection = NatsClient::from_options(options);
+        let connection_result = run_and_wait(connection);
+        assert!(connection_result.is_ok());
     }
 
     #[test]
@@ -247,9 +286,67 @@ mod client_test {
             .build()
             .unwrap();
 
-        let connection = NatsClient::from_options(options);
+        let connection = NatsClient::from_options(options).and_then(|client| client.connect());
         let connection_result = run_and_wait(connection);
-        println!("{:?}", connection_result);
         assert!(connection_result.is_ok());
+    }
+
+    /*#[test]
+    fn can_sub_and_pub() {
+        let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
+        let options = NatsClientOptionsBuilder::default()
+            .connect_command(connect_cmd)
+            .cluster_uri("127.0.0.1:4222")
+            .build()
+            .unwrap();
+
+        let fut = NatsClient::from_options(options)
+            .and_then(|client| client.connect())
+            .and_then(|client| {
+                client
+                    .subscribe(SubCommandBuilder::default().subject("foo").build().unwrap())
+                    .map_err(|_| NatsError::InnerBrokenChain)
+                    .and_then(move |stream| {
+                        let _ = client
+                            .publish(
+                                PubCommandBuilder::default()
+                                    .subject("foo")
+                                    .payload("bar")
+                                    .build()
+                                    .unwrap(),
+                            ).wait();
+
+                        stream
+                            .inspect(|msg| println!("{:?}", msg))
+                            .take(1)
+                            .into_future()
+                            .map(|(maybe_message, _)| maybe_message.unwrap())
+                            .map_err(|_| NatsError::InnerBrokenChain)
+                    })
+            });
+
+        let connection_result = run_and_wait(fut);
+        assert!(connection_result.is_ok());
+        let msg = connection_result.unwrap();
+        assert_eq!(msg.payload, "bar");
+    }*/
+
+    #[test]
+    fn can_request() {
+        let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
+        let options = NatsClientOptionsBuilder::default()
+            .connect_command(connect_cmd)
+            .cluster_uri("127.0.0.1:4222")
+            .build()
+            .unwrap();
+
+        let fut = NatsClient::from_options(options)
+            .and_then(|client| client.connect())
+            .and_then(|client| client.request("foo2".into(), "bar".into()));
+
+        let connection_result = run_and_wait(fut);
+        assert!(connection_result.is_ok());
+        let msg = connection_result.unwrap();
+        assert_eq!(msg.payload, "bar");
     }
 }

@@ -25,7 +25,7 @@ impl Command for Message {
         };
 
         let cmd_str = format!("MSG\t{}\t{}{}\t{}\r\n", self.subject, self.sid, rt, self.payload.len());
-        let mut bytes = BytesMut::new();
+        let mut bytes = BytesMut::with_capacity(cmd_str.len() + self.payload.len() + 2);
         bytes.put(cmd_str.as_bytes());
         bytes.put(self.payload);
         bytes.put("\r\n");
