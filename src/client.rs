@@ -49,7 +49,7 @@ impl NatsClientSender {
     }
 
     pub fn send(&self, op: Op) -> impl Future<Item = (), Error = NatsError> {
-        let _verbose = self.verbose.clone();
+        //let _verbose = self.verbose.clone();
         let fut = self
             .tx
             .unbounded_send(op)
@@ -80,17 +80,17 @@ impl NatsClientMultiplexer {
         // Here we filter the incoming TCP stream Messages by subscription ID and sending it to the appropriate Sender
         let work_tx = stream
             .for_each(move |op| {
-                match &op {
+                match op {
                     Op::MSG(msg) => {
                         if let Ok(stx) = stx_inner.read() {
                             if let Some(tx) = stx.get(&msg.sid) {
-                                let _ = tx.unbounded_send(msg.clone());
+                                let _ = tx.unbounded_send(msg);
                             }
                         }
                     }
                     // Forward the rest of the messages to the owning client
                     op => {
-                        let _ = otx_inner.unbounded_send(op.clone());
+                        let _ = otx_inner.unbounded_send(op);
                     }
                 }
 
@@ -195,9 +195,10 @@ impl NatsClient {
 
     pub fn subscribe(&self, cmd: SubCommand) -> impl Future<Item = impl Stream<Item = Message, Error = NatsError>> {
         let inner_rx = self.rx.clone();
+        let sid = cmd.sid.clone();
         self.tx
-            .send(Op::SUB(cmd.clone()))
-            .and_then(move |_| future::ok(inner_rx.for_sid(cmd.sid)))
+            .send(Op::SUB(cmd))
+            .and_then(move |_| future::ok(inner_rx.for_sid(sid)))
     }
 
     pub fn request(&self, subject: String, payload: Bytes) -> impl Future<Item = Message, Error = NatsError> {

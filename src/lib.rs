@@ -33,6 +33,11 @@ extern crate url;
 #[macro_use]
 mod error;
 
+// TODO: Auto-answering PONG to PING
+// TODO: Implement reconnection
+// TODO: Auto-pruning of unsub
+// TODO: Handle verbose mode
+// TODO: Handle pedantic mode
 // TODO: Switch parsing to using `nom`
 
 pub use self::error::*;
