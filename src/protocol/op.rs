@@ -32,7 +32,7 @@ macro_rules! op_from_cmd {
 
         match $cmd(&$buf) {
             Ok(c) => Ok(Some($op(c))),
-            Err(CommandError::IncompleteCommandError) => return Ok(None),
+            Err(CommandError::IncompleteCommandError) => return Err(CommandError::IncompleteCommandError),
             Err(e) => return Err(e.into()),
         }
     }};
@@ -54,8 +54,8 @@ impl Op {
         })
     }
 
-    pub fn from_bytes(buf: &[u8]) -> Result<Option<Self>, CommandError> {
-        match buf {
+    pub fn from_bytes(cmd_name: &[u8], buf: &[u8]) -> Result<Option<Self>, CommandError> {
+        match cmd_name {
             ServerInfo::CMD_NAME => op_from_cmd!(buf, ServerInfo::try_parse, Op::INFO),
             ConnectCommand::CMD_NAME => op_from_cmd!(buf, ConnectCommand::try_parse, Op::CONNECT),
             Message::CMD_NAME => op_from_cmd!(buf, Message::try_parse, Op::MSG),

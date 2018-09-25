@@ -80,8 +80,6 @@ impl NatsClientMultiplexer {
         // Here we filter the incoming TCP stream Messages by subscription ID and sending it to the appropriate Sender
         let work_tx = stream
             .for_each(move |op| {
-                let hwnd = task::current();
-                println!("received op from raw stream {:?}", op);
                 match &op {
                     Op::MSG(msg) => {
                         if let Ok(stx) = stx_inner.read() {
@@ -95,8 +93,6 @@ impl NatsClientMultiplexer {
                         let _ = otx_inner.unbounded_send(op.clone());
                     }
                 }
-
-                hwnd.notify();
 
                 future::ok::<(), NatsError>(())
             }).map(|_| ())
@@ -138,13 +134,13 @@ pub struct NatsClient {
     rx: Arc<NatsClientMultiplexer>,
 }
 
-/*impl Stream for NatsClient {
+impl Stream for NatsClient {
     type Item = Op;
     type Error = NatsError;
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
         self.other_rx.poll().map_err(|_| NatsError::InnerBrokenChain)
     }
-}*/
+}
 
 impl NatsClient {
     pub fn from_options(opts: NatsClientOptions) -> impl Future<Item = Self, Error = NatsError> {
@@ -291,7 +287,7 @@ mod client_test {
         assert!(connection_result.is_ok());
     }
 
-    /*#[test]
+    #[test]
     fn can_sub_and_pub() {
         let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
         let options = NatsClientOptionsBuilder::default()
@@ -317,7 +313,6 @@ mod client_test {
                             ).wait();
 
                         stream
-                            .inspect(|msg| println!("{:?}", msg))
                             .take(1)
                             .into_future()
                             .map(|(maybe_message, _)| maybe_message.unwrap())
@@ -329,7 +324,7 @@ mod client_test {
         assert!(connection_result.is_ok());
         let msg = connection_result.unwrap();
         assert_eq!(msg.payload, "bar");
-    }*/
+    }
 
     #[test]
     fn can_request() {

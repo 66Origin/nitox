@@ -35,20 +35,28 @@ impl Decoder for OpCodec {
     type Item = Op;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let maybe_offset = buf[self.next_index..].iter().position(|b| *b == b' ' || *b == b'\t');
-
         // Let's check if we find a blank space at the beginning
-        if let Some(command_offset) = maybe_offset {
-            match Op::from_bytes(&buf[..command_offset]) {
-                Ok(maybe_op) => Ok(maybe_op),
+        if let Some(command_offset) = buf[self.next_index..].iter().position(|b| *b == b' ' || *b == b'\t') {
+            match Op::from_bytes(&buf[..command_offset], &buf) {
                 Err(CommandError::IncompleteCommandError) => {
                     self.next_index = buf.len();
                     Ok(None)
+                }
+                Ok(maybe_op) => match maybe_op {
+                    None => {
+                        self.next_index = buf.len();
+                        Ok(None)
+                    }
+                    Some(op) => {
+                        buf.clear(); // haha, that's what was missing!
+                        self.next_index = 0;
+                        Ok(Some(op))
+                    }
                 },
                 Err(e) => {
                     self.next_index = 0;
                     Err(e.into())
-                },
+                }
             }
         } else {
             // First blank not found yet, continuing

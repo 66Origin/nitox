@@ -19,7 +19,7 @@ impl Sink for NatsConnection {
     type SinkItem = Op;
     type SinkError = NatsError;
 
-    fn start_send(&mut self, item: Op) -> StartSend<Self::SinkItem, Self::SinkError> {
+    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         match self {
             NatsConnection::Tcp(framed) => framed.start_send(item),
             NatsConnection::Tls(framed) => framed.start_send(item),
