@@ -36,7 +36,10 @@ impl Decoder for OpCodec {
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Let's check if we find a blank space at the beginning
-        if let Some(command_offset) = buf[self.next_index..].iter().position(|b| *b == b' ' || *b == b'\t') {
+        if let Some(command_offset) = buf[self.next_index..]
+            .iter()
+            .position(|b| *b == b' ' || *b == b'\t' || *b == b'\n')
+        {
             match Op::from_bytes(&buf[..command_offset], &buf) {
                 Err(CommandError::IncompleteCommandError) => {
                     self.next_index = buf.len();

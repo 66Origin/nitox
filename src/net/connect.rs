@@ -11,13 +11,13 @@ use protocol::Op;
 
 #[derive(Debug)]
 pub enum NatsConnection {
-    Tcp(Framed<TcpStream, OpCodec>),
-    Tls(Framed<TlsStream<TcpStream>, OpCodec>),
+    Tcp(Box<Framed<TcpStream, OpCodec>>),
+    Tls(Box<Framed<TlsStream<TcpStream>, OpCodec>>),
 }
 
 impl Sink for NatsConnection {
-    type SinkItem = Op;
     type SinkError = NatsError;
+    type SinkItem = Op;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         match self {
@@ -35,8 +35,8 @@ impl Sink for NatsConnection {
 }
 
 impl Stream for NatsConnection {
-    type Item = Op;
     type Error = NatsError;
+    type Item = Op;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self {
@@ -49,7 +49,7 @@ impl Stream for NatsConnection {
 pub(crate) fn connect(addr: &SocketAddr) -> impl Future<Item = NatsConnection, Error = NatsError> {
     TcpStream::connect(addr)
         .from_err()
-        .and_then(move |socket| future::ok(NatsConnection::Tcp(OpCodec::default().framed(socket))))
+        .and_then(move |socket| future::ok(NatsConnection::Tcp(Box::new(OpCodec::default().framed(socket)))))
 }
 
 pub(crate) fn connect_tls(host: String, addr: &SocketAddr) -> impl Future<Item = NatsConnection, Error = NatsError> {
@@ -59,5 +59,5 @@ pub(crate) fn connect_tls(host: String, addr: &SocketAddr) -> impl Future<Item =
     TcpStream::connect(addr)
         .from_err()
         .and_then(move |socket| tls_stream.connect(&host, socket).map_err(|e| e.into()))
-        .and_then(|socket| future::ok(NatsConnection::Tls(OpCodec::default().framed(socket))))
+        .and_then(|socket| future::ok(NatsConnection::Tls(Box::new(OpCodec::default().framed(socket)))))
 }

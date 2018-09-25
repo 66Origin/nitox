@@ -5,7 +5,7 @@ use futures::{
     prelude::*,
     stream,
     sync::mpsc,
-    task, Future,
+    Future,
 };
 use std::{
     collections::HashMap,
@@ -17,11 +17,8 @@ use tokio_executor;
 use url::Url;
 
 use error::NatsError;
-use net::{
-    connect::*,
-    reconnect::{Reconnect, ReconnectError},
-};
-use protocol::{commands::*, CommandError, Op};
+use net::connect::*;
+use protocol::{commands::*, Op};
 
 type NatsSink = stream::SplitSink<NatsConnection>;
 type NatsStream = stream::SplitStream<NatsConnection>;
@@ -50,13 +47,10 @@ impl NatsClientSender {
 
     pub fn send(&self, op: Op) -> impl Future<Item = (), Error = NatsError> {
         //let _verbose = self.verbose.clone();
-        let fut = self
-            .tx
+        self.tx
             .unbounded_send(op)
             .map_err(|_| NatsError::InnerBrokenChain)
-            .into_future();
-
-        fut
+            .into_future()
     }
 }
 
@@ -106,15 +100,15 @@ impl NatsClientMultiplexer {
     pub fn for_sid(&self, sid: NatsSubscriptionId) -> impl Stream<Item = Message, Error = NatsError> {
         let (tx, rx) = mpsc::unbounded();
         if let Ok(mut subs) = self.subs_tx.write() {
-            subs.insert(sid.clone(), tx);
+            subs.insert(sid, tx);
         }
 
         rx.map_err(|_| NatsError::InnerBrokenChain)
     }
 
-    pub fn remove_sid(&self, sid: NatsSubscriptionId) {
+    pub fn remove_sid(&self, sid: &str) {
         if let Ok(mut subs) = self.subs_tx.write() {
-            subs.remove(&sid);
+            subs.remove(sid);
         }
     }
 }
@@ -126,17 +120,27 @@ pub struct NatsClientOptions {
     cluster_uri: String,
 }
 
-#[derive(Debug)]
 pub struct NatsClient {
     opts: NatsClientOptions,
-    other_rx: mpsc::UnboundedReceiver<Op>,
+    other_rx: Box<dyn Stream<Item = Op, Error = NatsError> + Send>,
     tx: NatsClientSender,
     rx: Arc<NatsClientMultiplexer>,
 }
 
+impl ::std::fmt::Debug for NatsClient {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "NatsClient {{ opts: {:?}, other_rx: [REDACTED], tx: {:?}, rx: {:?} }}",
+            self.opts, self.tx, self.rx
+        )
+    }
+}
+
 impl Stream for NatsClient {
-    type Item = Op;
     type Error = NatsError;
+    type Item = Op;
+
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
         self.other_rx.poll().map_err(|_| NatsError::InnerBrokenChain)
     }
@@ -145,7 +149,7 @@ impl Stream for NatsClient {
 impl NatsClient {
     pub fn from_options(opts: NatsClientOptions) -> impl Future<Item = Self, Error = NatsError> {
         let cluster_uri = opts.cluster_uri.clone();
-        let tls_required = opts.connect_command.tls_required.clone();
+        let tls_required = opts.connect_command.tls_required;
 
         future::result(SocketAddr::from_str(&cluster_uri))
             .from_err()
@@ -167,9 +171,22 @@ impl NatsClient {
                 let (rx, other_rx) = NatsClientMultiplexer::new(stream);
                 let tx = NatsClientSender::new(sink);
 
+                let (tmp_other_tx, tmp_other_rx) = mpsc::unbounded();
+                let tx_inner = tx.clone();
+                let other_rx = other_rx
+                    .filter_map(move |op| match op {
+                        Op::PING => {
+                            tx_inner.send(Op::PONG);
+                            None
+                        }
+                        o => Some(o),
+                    }).map_err(|_| mpsc::SendError) // FIXME: Since when is it private?????
+                    .forward(tmp_other_tx)
+                    .map_err(|_| ());
+
                 let client = NatsClient {
                     tx,
-                    other_rx,
+                    other_rx: Box::new(tmp_other_rx),
                     rx: Arc::new(rx),
                     opts,
                 };
@@ -242,8 +259,7 @@ impl NatsClient {
 #[cfg(test)]
 mod client_test {
     use super::*;
-    use futures::sync::oneshot;
-    use futures::{prelude::*, stream, Future, Sink, Stream};
+    use futures::{prelude::*, stream, sync::oneshot, Future, Sink, Stream};
     use tokio;
 
     fn run_and_wait<R, E, F>(f: F) -> Result<R, E>

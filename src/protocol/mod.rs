@@ -23,13 +23,13 @@ macro_rules! check_cmd_arg {
         use protocol::{check_command_arg, ArgumentValidationError};
 
         match check_command_arg($val) {
-            Ok(_) => {}
+            Ok(_) => {},
             Err(ArgumentValidationError::ContainsSpace) => {
                 return Err(format!("{} contains spaces", $part).into());
-            }
+            },
             Err(ArgumentValidationError::ContainsTab) => {
                 return Err(format!("{} contains tabs", $part).into());
-            }
+            },
         }
     };
 }
@@ -44,11 +44,8 @@ mod op;
 pub use self::op::*;
 
 pub mod commands {
-    pub use super::client::connect::*;
-    pub use super::client::pub_cmd::*;
-    pub use super::client::sub_cmd::*;
-    pub use super::client::unsub_cmd::*;
-    pub use super::server::info::*;
-    pub use super::server::message::*;
-    pub use super::server::ServerError;
+    pub use super::{
+        client::{connect::*, pub_cmd::*, sub_cmd::*, unsub_cmd::*},
+        server::{info::*, message::*, ServerError},
+    };
 }
