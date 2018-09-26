@@ -38,7 +38,7 @@ impl Decoder for OpCodec {
         // Let's check if we find a blank space at the beginning
         if let Some(command_offset) = buf[self.next_index..]
             .iter()
-            .position(|b| *b == b' ' || *b == b'\t' || *b == b'\n')
+            .position(|b| *b == b' ' || *b == b'\t' || *b == b'\r')
         {
             match Op::from_bytes(&buf[..command_offset], &buf) {
                 Err(CommandError::IncompleteCommandError) => {
@@ -51,7 +51,7 @@ impl Decoder for OpCodec {
                         Ok(None)
                     }
                     Some(op) => {
-                        buf.clear(); // haha, that's what was missing!
+                        buf.clear();
                         self.next_index = 0;
                         Ok(Some(op))
                     }

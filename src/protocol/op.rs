@@ -2,7 +2,7 @@ use super::{commands::*, Command, CommandError};
 use bytes::Bytes;
 
 /// Abstraction over NATS protocol messages
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     /// [SERVER] Sent to client after initial TCP/IP connection
     INFO(ServerInfo),
@@ -62,15 +62,41 @@ impl Op {
             PubCommand::CMD_NAME => op_from_cmd!(buf, PubCommand::try_parse, Op::PUB),
             SubCommand::CMD_NAME => op_from_cmd!(buf, SubCommand::try_parse, Op::SUB),
             UnsubCommand::CMD_NAME => op_from_cmd!(buf, UnsubCommand::try_parse, Op::UNSUB),
-            b"+OK" => Ok(Some(Op::OK)),
-            b"-ERR" => Ok(Some(Op::ERR(ServerError::from(String::from_utf8(buf[1..].to_vec())?)))),
+            b"PING" => {
+                if buf == b"PING\r\n" {
+                    Ok(Some(Op::PING))
+                } else {
+                    Err(CommandError::IncompleteCommandError)
+                }
+            }
+            b"PONG" => {
+                if buf == b"PONG\r\n" {
+                    Ok(Some(Op::PONG))
+                } else {
+                    Err(CommandError::IncompleteCommandError)
+                }
+            }
+            b"+OK" => {
+                if buf == b"+OK\r\n" {
+                    Ok(Some(Op::OK))
+                } else {
+                    Err(CommandError::IncompleteCommandError)
+                }
+            }
+            b"-ERR" => {
+                if &buf[buf.len() - 2..] == b"\r\n" {
+                    Ok(Some(Op::ERR(ServerError::from(String::from_utf8(buf[1..].to_vec())?))))
+                } else {
+                    Err(CommandError::IncompleteCommandError)
+                }
+            }
             _ => {
                 if buf.len() > 7 {
                     Err(CommandError::CommandNotFoundOrSupported)
                 } else {
                     Ok(None)
                 }
-            },
+            }
         }
     }
 }

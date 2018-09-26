@@ -33,7 +33,6 @@ extern crate url;
 #[macro_use]
 mod error;
 
-// TODO: Auto-answering PONG to PING
 // TODO: Implement reconnection
 // TODO: Auto-pruning of unsub
 // TODO: Handle verbose mode

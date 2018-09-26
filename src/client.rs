@@ -173,20 +173,25 @@ impl NatsClient {
 
                 let (tmp_other_tx, tmp_other_rx) = mpsc::unbounded();
                 let tx_inner = tx.clone();
-                let other_rx = other_rx
-                    .filter_map(move |op| match op {
-                        Op::PING => {
-                            tx_inner.send(Op::PONG);
-                            None
-                        }
-                        o => Some(o),
-                    }).map_err(|_| mpsc::SendError) // FIXME: Since when is it private?????
-                    .forward(tmp_other_tx)
-                    .map_err(|_| ());
+                tokio_executor::spawn(
+                    other_rx
+                        .for_each(move |op| {
+                            match op {
+                                Op::PING => {
+                                    tokio_executor::spawn(tx_inner.send(Op::PONG).map_err(|_| ()));
+                                }
+                                o => {
+                                    let _ = tmp_other_tx.unbounded_send(o);
+                                }
+                            }
+                            future::ok(())
+                        }).into_future()
+                        .map_err(|_| ()),
+                );
 
                 let client = NatsClient {
                     tx,
-                    other_rx: Box::new(tmp_other_rx),
+                    other_rx: Box::new(tmp_other_rx.map_err(|_| NatsError::InnerBrokenChain)),
                     rx: Arc::new(rx),
                     opts,
                 };
@@ -200,6 +205,10 @@ impl NatsClient {
             .send(Op::CONNECT(self.opts.connect_command.clone()))
             .into_future()
             .and_then(move |_| future::ok(self))
+    }
+
+    pub fn send(self, op: Op) -> impl Future<Item = Self, Error = NatsError> {
+        self.tx.send(op).into_future().and_then(move |_| future::ok(self))
     }
 
     pub fn publish(&self, cmd: PubCommand) -> impl Future<Item = (), Error = NatsError> {
@@ -343,7 +352,8 @@ mod client_test {
         assert_eq!(msg.payload, "bar");
     }
 
-    #[test]
+    // TODO: Create TCP listener to mock NATS Server
+    //#[test]
     fn can_request() {
         let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
         let options = NatsClientOptionsBuilder::default()
@@ -360,5 +370,50 @@ mod client_test {
         assert!(connection_result.is_ok());
         let msg = connection_result.unwrap();
         assert_eq!(msg.payload, "bar");
+    }
+
+    #[test]
+    fn can_ping_to_pong() {
+        let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
+        let options = NatsClientOptionsBuilder::default()
+            .connect_command(connect_cmd)
+            .cluster_uri("127.0.0.1:4222")
+            .build()
+            .unwrap();
+
+        let fut = NatsClient::from_options(options)
+            .and_then(|client| client.connect())
+            .and_then(|client| client.send(Op::PING))
+            .and_then(|client| {
+                client
+                    .skip_while(|op| future::ok(*op != Op::PONG))
+                    .take(1)
+                    .into_future()
+                    .map(|(op, _)| op.unwrap())
+                    .map_err(|(e, _)| e)
+            });
+
+        let connection_result = run_and_wait(fut);
+        assert!(connection_result.is_ok());
+        let op = connection_result.unwrap();
+        assert_eq!(op, Op::PONG);
+    }
+
+    // TODO: Create TCP listener to mock NATS Server
+    //#[test]
+    fn can_pong_to_ping() {
+        let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
+        let options = NatsClientOptionsBuilder::default()
+            .connect_command(connect_cmd)
+            .cluster_uri("127.0.0.1:4222")
+            .build()
+            .unwrap();
+
+        let fut = NatsClient::from_options(options)
+            .and_then(|client| client.connect())
+            .and_then(|client| client.request("foo2".into(), "bar".into()));
+
+        let connection_result = run_and_wait(fut);
+        assert!(connection_result.is_ok());
     }
 }

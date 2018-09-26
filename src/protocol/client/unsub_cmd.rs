@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use protocol::{Command, CommandError};
 
-#[derive(Debug, Clone, Builder)]
+#[derive(Debug, Clone, PartialEq, Builder)]
 pub struct UnsubCommand {
     #[builder(setter(into))]
     pub sid: String,

@@ -2,7 +2,7 @@ use bytes::Bytes;
 use protocol::{Command, CommandError};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
-#[derive(Debug, Clone, Builder)]
+#[derive(Debug, Clone, PartialEq, Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct SubCommand {
     #[builder(setter(into))]
