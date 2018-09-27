@@ -13,12 +13,8 @@ extern crate serde_json;
 extern crate bytes;
 extern crate rand;
 
-#[allow(unused_imports)]
 #[macro_use]
 extern crate log;
-
-#[cfg(test)]
-extern crate tokio;
 
 extern crate futures;
 extern crate native_tls;
@@ -33,7 +29,7 @@ extern crate url;
 #[macro_use]
 mod error;
 
-// TODO: Implement reconnection
+// TODO: Create small tcp listener to mock req/rep and server ping/pong
 // TODO: Auto-pruning of unsub
 // TODO: Handle verbose mode
 // TODO: Handle pedantic mode

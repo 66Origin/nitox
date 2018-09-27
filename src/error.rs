@@ -1,4 +1,5 @@
 use super::protocol;
+use std::io;
 
 macro_rules! from_error {
     ($type:ty, $target:ident, $targetvar:expr) => {
@@ -12,8 +13,10 @@ macro_rules! from_error {
 
 #[derive(Debug, Fail)]
 pub enum NatsError {
-    #[fail(display = "IOError: {}", _0)]
-    IOError(::std::io::Error),
+    #[fail(display = "IOError: {:?}", _0)]
+    IOError(io::Error),
+    #[fail(display = "ServerDisconnected: {}", _0)]
+    ServerDisconnected(io::Error),
     #[fail(display = "ProtocolError: {}", _0)]
     ProtocolError(protocol::CommandError),
     #[fail(display = "UTF8Error: {}", _0)]
@@ -26,22 +29,32 @@ pub enum NatsError {
     UrlParseError(::url::ParseError),
     #[fail(display = "AddrParseError: {}", _0)]
     AddrParseError(::std::net::AddrParseError),
+    #[fail(display = "CannotReconnectToServer: cannot safely reconnect to server due to internal polling")]
+    CannotReconnectToServer,
     #[fail(display = "InnerBrokenChain: the sender/receiver pair has been disconnected")]
     InnerBrokenChain,
     #[fail(display = "GenericError: {}", _0)]
     GenericError(String),
 }
 
-from_error!(::std::io::Error, NatsError, NatsError::IOError);
-from_error!(protocol::CommandError, NatsError, NatsError::ProtocolError);
-from_error!(::std::string::FromUtf8Error, NatsError, NatsError::UTF8Error);
-from_error!(::native_tls::Error, NatsError, NatsError::TlsError);
-from_error!(String, NatsError, NatsError::GenericError);
-from_error!(::url::ParseError, NatsError, NatsError::UrlParseError);
-from_error!(::std::net::AddrParseError, NatsError, NatsError::AddrParseError);
+impl From<io::Error> for NatsError {
+    fn from(err: io::Error) -> Self {
+        match err.kind() {
+            io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused => NatsError::ServerDisconnected(err),
+            _ => NatsError::IOError(err),
+        }
+    }
+}
 
 impl<T> From<::futures::sync::mpsc::SendError<T>> for NatsError {
     fn from(_: ::futures::sync::mpsc::SendError<T>) -> Self {
         NatsError::InnerBrokenChain
     }
 }
+
+from_error!(protocol::CommandError, NatsError, NatsError::ProtocolError);
+from_error!(::std::string::FromUtf8Error, NatsError, NatsError::UTF8Error);
+from_error!(::native_tls::Error, NatsError, NatsError::TlsError);
+from_error!(String, NatsError, NatsError::GenericError);
+from_error!(::url::ParseError, NatsError, NatsError::UrlParseError);
+from_error!(::std::net::AddrParseError, NatsError, NatsError::AddrParseError);

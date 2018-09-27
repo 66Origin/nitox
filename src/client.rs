@@ -17,7 +17,7 @@ use tokio_executor;
 use url::Url;
 
 use error::NatsError;
-use net::connect::*;
+use net::*;
 use protocol::{commands::*, Op};
 
 type NatsSink = stream::SplitSink<NatsConnection>;
@@ -157,13 +157,13 @@ impl NatsClient {
                 if tls_required {
                     match Url::parse(&cluster_uri) {
                         Ok(url) => match url.host_str() {
-                            Some(host) => future::ok(Either::B(connect_tls(host.to_string(), &cluster_sa))),
+                            Some(host) => future::ok(Either::B(connect_tls(host.to_string(), cluster_sa))),
                             None => future::err(NatsError::TlsHostMissingError),
                         },
                         Err(e) => future::err(e.into()),
                     }
                 } else {
-                    future::ok(Either::A(connect(&cluster_sa)))
+                    future::ok(Either::A(connect(cluster_sa)))
                 }
             }).and_then(|either| either)
             .and_then(move |connection| {
@@ -257,6 +257,7 @@ impl NatsClient {
             .and_then(move |_| tx2.send(Op::PUB(pub_cmd)))
             .and_then(move |_| {
                 rx.for_sid(sid)
+                    .inspect(|msg| println!("msg {:#?}", msg))
                     .take(1)
                     .into_future()
                     .map(|(maybe_message, _)| maybe_message.unwrap())
@@ -268,25 +269,106 @@ impl NatsClient {
 #[cfg(test)]
 mod client_test {
     use super::*;
-    use futures::{prelude::*, stream, sync::oneshot, Future, Sink, Stream};
-    use tokio;
+    extern crate env_logger;
+    extern crate tokio;
+    use codec::OpCodec;
+    use futures::{
+        sync::{mpsc, oneshot},
+        Future, Stream,
+    };
+    use protocol::Op;
+    use std::sync::RwLock;
+    use tokio_codec::Decoder;
+    use tokio_tcp::TcpListener;
 
-    fn run_and_wait<R, E, F>(f: F) -> Result<R, E>
-    where
-        F: Future<Item = R, Error = E> + Send + 'static,
-        R: ::std::fmt::Debug + Send + 'static,
-        E: ::std::fmt::Debug + Send + 'static,
-    {
-        let (tx, rx) = oneshot::channel();
-        let mut runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.spawn(f.then(|r| tx.send(r).map_err(|_| panic!("Cannot send Result"))));
-        let result = rx.wait().expect("Cannot wait for a result");
-        let _ = runtime.shutdown_now().wait();
-        result
+    macro_rules! elog {
+        () => {
+            let _ = env_logger::try_init();
+        };
+    }
+
+    fn create_tcp_mock(
+        runtime: &mut tokio::runtime::Runtime,
+        port: usize,
+        is_verbose: Option<bool>,
+    ) -> Result<(), NatsError> {
+        let verbose = is_verbose.unwrap_or(false);
+        let listener = TcpListener::bind(&format!("127.0.0.1:{}", port).parse()?)?;
+        debug!(target: "nitox", "TCP Mock NATS Server started on port {}", port);
+        runtime.spawn(
+            listener
+                .incoming()
+                .map(move |socket| OpCodec::default().framed(socket))
+                .from_err()
+                .and_then(|socket| socket.send(Op::PING))
+                .and_then(move |socket| {
+                    let (sink, stream) = socket.split();
+                    let (tx, rx) = mpsc::unbounded();
+                    let rx = rx.map_err(|_| NatsError::InnerBrokenChain);
+                    tokio_executor::spawn(sink.send_all(rx).map(|_| ()).map_err(|_| ()));
+
+                    let sid_lock = RwLock::new(String::new());
+
+                    stream.for_each(move |op| {
+                        debug!(target: "nitox", "Got OP from client {:#?}", op);
+                        match op {
+                            Op::PONG => {
+                                println!("Got PONG from client");
+                                if verbose {
+                                    let _ = tx.unbounded_send(Op::OK);
+                                }
+                            }
+                            Op::PING => {
+                                if verbose {
+                                    let _ = tx.unbounded_send(Op::OK);
+                                }
+                                let _ = tx.unbounded_send(Op::PONG);
+                            }
+                            Op::SUB(cmd) => {
+                                if verbose {
+                                    let _ = tx.unbounded_send(Op::OK);
+                                }
+
+                                if let Ok(mut sid) = sid_lock.write() {
+                                    *sid = cmd.sid;
+                                }
+                            }
+                            Op::PUB(cmd) => {
+                                if verbose {
+                                    let _ = tx.unbounded_send(Op::OK);
+                                }
+                                let mut builder = MessageBuilder::default();
+                                let sub = cmd.subject.clone();
+                                builder.subject(cmd.reply_to.unwrap_or(sub));
+                                if let Ok(sid) = sid_lock.read() {
+                                    builder.sid((*sid).clone());
+                                }
+                                builder.payload("bar");
+
+                                let msg = builder.build().unwrap();
+                                let _ = tx.unbounded_send(Op::MSG(msg));
+                            }
+                            _ => {
+                                if verbose {
+                                    let _ = tx.unbounded_send(Op::OK);
+                                }
+                            }
+                        }
+
+                        future::ok(())
+                    })
+                }).into_future()
+                .map(|_| ())
+                .map_err(|_| ()),
+        );
+
+        Ok(())
     }
 
     #[test]
     fn can_connect_raw() {
+        elog!();
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
         let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
         let options = NatsClientOptionsBuilder::default()
             .connect_command(connect_cmd)
@@ -295,12 +377,18 @@ mod client_test {
             .unwrap();
 
         let connection = NatsClient::from_options(options);
-        let connection_result = run_and_wait(connection);
+        let (tx, rx) = oneshot::channel();
+        runtime.spawn(connection.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));
+        let connection_result = rx.wait().expect("Cannot wait for a result");
+        let _ = runtime.shutdown_now().wait();
+        debug!(target: "nitox", "can_connect_raw::connection_result {:#?}", connection_result);
         assert!(connection_result.is_ok());
     }
 
     #[test]
     fn can_connect() {
+        elog!();
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
         let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
         let options = NatsClientOptionsBuilder::default()
             .connect_command(connect_cmd)
@@ -309,12 +397,18 @@ mod client_test {
             .unwrap();
 
         let connection = NatsClient::from_options(options).and_then(|client| client.connect());
-        let connection_result = run_and_wait(connection);
+        let (tx, rx) = oneshot::channel();
+        runtime.spawn(connection.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));
+        let connection_result = rx.wait().expect("Cannot wait for a result");
+        let _ = runtime.shutdown_now().wait();
+        debug!(target: "nitox", "can_connect::connection_result {:#?}", connection_result);
         assert!(connection_result.is_ok());
     }
 
     #[test]
     fn can_sub_and_pub() {
+        elog!();
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
         let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
         let options = NatsClientOptionsBuilder::default()
             .connect_command(connect_cmd)
@@ -346,34 +440,52 @@ mod client_test {
                     })
             });
 
-        let connection_result = run_and_wait(fut);
-        assert!(connection_result.is_ok());
-        let msg = connection_result.unwrap();
-        assert_eq!(msg.payload, "bar");
-    }
-
-    // TODO: Create TCP listener to mock NATS Server
-    //#[test]
-    fn can_request() {
-        let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
-        let options = NatsClientOptionsBuilder::default()
-            .connect_command(connect_cmd)
-            .cluster_uri("127.0.0.1:4222")
-            .build()
-            .unwrap();
-
-        let fut = NatsClient::from_options(options)
-            .and_then(|client| client.connect())
-            .and_then(|client| client.request("foo2".into(), "bar".into()));
-
-        let connection_result = run_and_wait(fut);
+        let (tx, rx) = oneshot::channel();
+        runtime.spawn(fut.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));
+        let connection_result = rx.wait().expect("Cannot wait for a result");
+        let _ = runtime.shutdown_now().wait();
+        debug!(target: "nitox", "can_sub_and_pub::connection_result {:#?}", connection_result);
         assert!(connection_result.is_ok());
         let msg = connection_result.unwrap();
         assert_eq!(msg.payload, "bar");
     }
 
     #[test]
+    #[allow(dead_code)]
+    fn can_request() {
+        elog!();
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
+
+        let tcp_res = create_tcp_mock(&mut runtime, 1339, None);
+        debug!(target: "nitox", "can_request::tcp_result {:#?}", tcp_res);
+        assert!(tcp_res.is_ok());
+
+        let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
+        let options = NatsClientOptionsBuilder::default()
+            .connect_command(connect_cmd)
+            .cluster_uri("127.0.0.1:1339")
+            .build()
+            .unwrap();
+
+        let fut = NatsClient::from_options(options)
+            .and_then(|client| client.connect())
+            .and_then(|client| client.request("foo2".into(), "foo".into()));
+
+        let (tx, rx) = oneshot::channel();
+        runtime.spawn(fut.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));
+        let connection_result = rx.wait().expect("Cannot wait for a result");
+        let _ = runtime.shutdown_now().wait();
+        debug!("can_request::connection_result {:#?}", connection_result);
+        assert!(connection_result.is_ok());
+        let msg = connection_result.unwrap();
+        debug!("can_request::msg {:#?}", msg);
+        assert_eq!(msg.payload, "bar");
+    }
+
+    #[test]
     fn can_ping_to_pong() {
+        elog!();
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
         let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
         let options = NatsClientOptionsBuilder::default()
             .connect_command(connect_cmd)
@@ -393,19 +505,29 @@ mod client_test {
                     .map_err(|(e, _)| e)
             });
 
-        let connection_result = run_and_wait(fut);
+        let (tx, rx) = oneshot::channel();
+        runtime.spawn(fut.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));
+        let connection_result = rx.wait().expect("Cannot wait for a result");
+        let _ = runtime.shutdown_now().wait();
+        debug!(target: "nitox", "can_ping_to_pong::connection_result {:#?}", connection_result);
         assert!(connection_result.is_ok());
         let op = connection_result.unwrap();
         assert_eq!(op, Op::PONG);
     }
 
-    // TODO: Create TCP listener to mock NATS Server
     //#[test]
+    #[allow(dead_code)]
     fn can_pong_to_ping() {
+        elog!();
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
+        let tcp_res = create_tcp_mock(&mut runtime, 1338, None);
+        debug!(target: "nitox", "can_pong_to_ping::tcp_result {:#?}", tcp_res);
+        assert!(tcp_res.is_ok());
+
         let connect_cmd = ConnectCommandBuilder::default().build().unwrap();
         let options = NatsClientOptionsBuilder::default()
             .connect_command(connect_cmd)
-            .cluster_uri("127.0.0.1:4222")
+            .cluster_uri("127.0.0.1:1338")
             .build()
             .unwrap();
 
@@ -413,7 +535,11 @@ mod client_test {
             .and_then(|client| client.connect())
             .and_then(|client| client.request("foo2".into(), "bar".into()));
 
-        let connection_result = run_and_wait(fut);
+        let (tx, rx) = oneshot::channel();
+        runtime.spawn(fut.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));
+        let connection_result = rx.wait().expect("Cannot wait for a result");
+        let _ = runtime.shutdown_now().wait();
+        debug!(target: "nitox", "can_pong_to_ping::connection_result {:#?}", connection_result);
         assert!(connection_result.is_ok());
     }
 }
