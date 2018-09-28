@@ -135,11 +135,12 @@ pub struct NatsClient {
 
 impl ::std::fmt::Debug for NatsClient {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "NatsClient {{ opts: {:?}, other_rx: [REDACTED], tx: {:?}, rx: {:?} }}",
-            self.opts, self.tx, self.rx
-        )
+        f.debug_struct("NatsClient")
+            .field("opts", &self.opts)
+            .field("tx", &self.tx)
+            .field("rx", &self.rx)
+            .field("other_rx", &"Box<Stream>...")
+            .finish()
     }
 }
 

@@ -2,8 +2,10 @@ use futures::{
     future::{self, Either},
     prelude::*,
 };
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+};
 use tokio_executor;
 
 use error::NatsError;
