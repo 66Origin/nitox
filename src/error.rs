@@ -13,10 +13,12 @@ macro_rules! from_error {
 
 #[derive(Debug, Fail)]
 pub enum NatsError {
+    #[fail(display = "CommandBuildError: {}", _0)]
+    CommandBuildError(String),
     #[fail(display = "IOError: {:?}", _0)]
     IOError(io::Error),
-    #[fail(display = "ServerDisconnected: {}", _0)]
-    ServerDisconnected(io::Error),
+    #[fail(display = "ServerDisconnected: {:?}", _0)]
+    ServerDisconnected(Option<io::Error>),
     #[fail(display = "ProtocolError: {}", _0)]
     ProtocolError(protocol::CommandError),
     #[fail(display = "UTF8Error: {}", _0)]
@@ -40,7 +42,9 @@ pub enum NatsError {
 impl From<io::Error> for NatsError {
     fn from(err: io::Error) -> Self {
         match err.kind() {
-            io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused => NatsError::ServerDisconnected(err),
+            io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused => {
+                NatsError::ServerDisconnected(Some(err))
+            }
             _ => NatsError::IOError(err),
         }
     }
