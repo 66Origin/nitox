@@ -54,8 +54,9 @@ impl NatsConnection {
             .and_then(move |socket| {
                 if is_tls {
                     Either::A(
+                        // This unwrap is safe because the value would always be present if `is_tls` is true
                         NatsConnectionInner::upgrade_tcp_to_tls(&maybe_host.unwrap(), socket)
-                            .map(|socket| NatsConnectionInner::from(socket)),
+                            .map(NatsConnectionInner::from),
                     )
                 } else {
                     Either::B(future::ok(NatsConnectionInner::from(socket)))
@@ -72,6 +73,8 @@ impl NatsConnection {
                     debug!(target: "nitox", "Cannot reconnect to server");
                     Err(NatsError::CannotReconnectToServer)
                 };
+
+                drop(inner_arc);
 
                 res
             })

@@ -35,34 +35,55 @@ impl Decoder for OpCodec {
     type Item = Op;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if buf.is_empty() {
+            return Ok(None);
+        }
+
+        debug!(target: "nitox", "codec buffer is {:?}", buf);
         // Let's check if we find a blank space at the beginning
         if let Some(command_offset) = buf[self.next_index..]
             .iter()
             .position(|b| *b == b' ' || *b == b'\t' || *b == b'\r')
         {
-            match Op::from_bytes(&buf[..command_offset], &buf) {
-                Err(CommandError::IncompleteCommandError) => {
-                    self.next_index = buf.len();
-                    Ok(None)
+            debug!(target: "nitox", "codec detected command name {:?}", &buf[..command_offset]);
+            if let Some(command_body_offset) = buf[command_offset..].windows(2).position(|w| w == b"\r\n") {
+                let mut end_buf_pos = command_offset + command_body_offset + 2;
+                if &buf[..command_offset] == b"PUB" || &buf[..command_offset] == b"MSG" {
+                    debug!(target: "nitox", "detected PUB or MSG, looking for second CRLF");
+                    if let Some(new_end) = buf[end_buf_pos..].windows(2).position(|w| w == b"\r\n") {
+                        debug!(target: "nitox", "found second CRLF at position {}", new_end);
+                        end_buf_pos += new_end + 2;
+                    } else {
+                        debug!(target: "nitox", "command was incomplete");
+                        return Ok(None);
+                    }
                 }
-                Ok(maybe_op) => match maybe_op {
-                    None => {
+                debug!(target: "nitox", "codec detected command body {:?}", &buf[..end_buf_pos]);
+                match Op::from_bytes(&buf[..command_offset], &buf[..end_buf_pos]) {
+                    Err(CommandError::IncompleteCommandError) => {
+                        debug!(target: "nitox", "command was incomplete");
                         self.next_index = buf.len();
                         Ok(None)
                     }
-                    Some(op) => {
-                        buf.clear();
+                    Ok(op) => {
+                        debug!(target: "nitox", "codec parsed command {:#?}", op);
+                        let _ = buf.split_to(end_buf_pos);
+                        debug!(target: "nitox", "buffer now contains {:?}", buf);
                         self.next_index = 0;
                         Ok(Some(op))
                     }
-                },
-                Err(e) => {
-                    self.next_index = 0;
-                    Err(e.into())
+                    Err(e) => {
+                        debug!(target: "nitox", "command couldn't be parsed {}", e);
+                        self.next_index = 0;
+                        Err(e.into())
+                    }
                 }
+            } else {
+                Ok(None)
             }
         } else {
             // First blank not found yet, continuing
+            debug!(target: "nitox", "no whitespace found yet, continuing");
             self.next_index = buf.len();
             Ok(None)
         }

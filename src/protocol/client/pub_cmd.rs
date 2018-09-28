@@ -13,6 +13,17 @@ pub struct PubCommand {
     pub payload: Bytes,
 }
 
+impl PubCommand {
+    pub fn builder() -> PubCommandBuilder {
+        PubCommandBuilder::default()
+    }
+
+    pub fn generate_reply_to() -> String {
+        let mut rng = thread_rng();
+        rng.sample_iter(&Alphanumeric).take(16).collect()
+    }
+}
+
 impl Command for PubCommand {
     const CMD_NAME: &'static [u8] = b"PUB";
 
@@ -80,13 +91,8 @@ impl Command for PubCommand {
 }
 
 impl PubCommandBuilder {
-    pub fn generate_reply_to() -> String {
-        let mut rng = thread_rng();
-        rng.sample_iter(&Alphanumeric).take(16).collect()
-    }
-
     pub fn auto_reply_to(&mut self) -> &mut Self {
-        let inbox = Self::generate_reply_to();
+        let inbox = PubCommand::generate_reply_to();
         self.reply_to = Some(Some(inbox));
         self
     }
@@ -107,7 +113,7 @@ impl PubCommandBuilder {
 }
 
 #[cfg(test)]
-mod pub_command_tests {
+mod tests {
     use super::{PubCommand, PubCommandBuilder};
     use protocol::Command;
 

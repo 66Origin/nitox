@@ -52,6 +52,12 @@ pub struct ServerInfo {
     connect_urls: Option<Vec<String>>,
 }
 
+impl ServerInfo {
+    pub fn builder() -> ServerInfoBuilder {
+        ServerInfoBuilder::default()
+    }
+}
+
 impl Command for ServerInfo {
     const CMD_NAME: &'static [u8] = b"INFO";
 
@@ -75,7 +81,7 @@ impl Command for ServerInfo {
 }
 
 #[cfg(test)]
-mod info_command_tests {
+mod tests {
     use super::{ServerInfo, ServerInfoBuilder};
     use protocol::Command;
 

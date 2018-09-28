@@ -9,6 +9,12 @@ pub struct UnsubCommand {
     pub max_msgs: Option<u32>,
 }
 
+impl UnsubCommand {
+    pub fn builder() -> UnsubCommandBuilder {
+        UnsubCommandBuilder::default()
+    }
+}
+
 impl Command for UnsubCommand {
     const CMD_NAME: &'static [u8] = b"UNSUB";
 
@@ -50,7 +56,7 @@ impl Command for UnsubCommand {
 }
 
 #[cfg(test)]
-mod unsub_command_tests {
+mod tests {
     use super::{UnsubCommand, UnsubCommandBuilder};
     use protocol::Command;
 

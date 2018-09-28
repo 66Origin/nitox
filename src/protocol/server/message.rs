@@ -14,6 +14,12 @@ pub struct Message {
     pub payload: Bytes,
 }
 
+impl Message {
+    pub fn builder() -> MessageBuilder {
+        MessageBuilder::default()
+    }
+}
+
 impl Command for Message {
     const CMD_NAME: &'static [u8] = b"MSG";
 
@@ -100,7 +106,7 @@ impl MessageBuilder {
 }
 
 #[cfg(test)]
-mod message_command_tests {
+mod tests {
     use super::{Message, MessageBuilder};
     use protocol::Command;
 

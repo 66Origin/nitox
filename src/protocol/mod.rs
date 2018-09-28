@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-pub trait Command {
+pub(crate) trait Command {
     const CMD_NAME: &'static [u8];
     fn into_vec(self) -> Result<Bytes, CommandError>;
     fn try_parse(buf: &[u8]) -> Result<Self, CommandError>
@@ -8,7 +8,7 @@ pub trait Command {
         Self: Sized;
 }
 
-pub fn check_command_arg(s: &str) -> Result<(), ArgumentValidationError> {
+pub(crate) fn check_command_arg(s: &str) -> Result<(), ArgumentValidationError> {
     if s.contains(' ') {
         return Err(ArgumentValidationError::ContainsSpace);
     } else if s.contains('\t') {
@@ -48,4 +48,26 @@ pub mod commands {
         client::{connect::*, pub_cmd::*, sub_cmd::*, unsub_cmd::*},
         server::{info::*, message::*, server_error::ServerError},
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_command_arg;
+
+    #[test]
+    #[should_panic]
+    fn it_detects_spaces() {
+        check_command_arg(&"foo bar").unwrap()
+    }
+
+    #[test]
+    #[should_panic]
+    fn it_detects_tabs() {
+        check_command_arg(&"foo\tbar").unwrap()
+    }
+
+    #[test]
+    fn it_works() {
+        check_command_arg(&"foo.bar").unwrap()
+    }
 }

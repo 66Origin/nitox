@@ -9,8 +9,18 @@ pub struct SubCommand {
     pub subject: String,
     #[builder(default)]
     pub queue_group: Option<String>,
-    #[builder(setter(into), default = "Self::generate_sid()")]
+    #[builder(setter(into), default = "SubCommand::generate_sid()")]
     pub sid: String,
+}
+
+impl SubCommand {
+    pub fn builder() -> SubCommandBuilder {
+        SubCommandBuilder::default()
+    }
+
+    pub fn generate_sid() -> String {
+        thread_rng().sample_iter(&Alphanumeric).take(8).collect()
+    }
 }
 
 impl Command for SubCommand {
@@ -59,10 +69,6 @@ impl Command for SubCommand {
 }
 
 impl SubCommandBuilder {
-    pub fn generate_sid() -> String {
-        thread_rng().sample_iter(&Alphanumeric).take(8).collect()
-    }
-
     fn validate(&self) -> Result<(), String> {
         if let Some(ref subj) = self.subject {
             check_cmd_arg!(subj, "subject");
@@ -79,7 +85,7 @@ impl SubCommandBuilder {
 }
 
 #[cfg(test)]
-mod sub_command_tests {
+mod tests {
     use super::{SubCommand, SubCommandBuilder};
     use protocol::Command;
 

@@ -41,6 +41,13 @@ pub struct ConnectCommand {
     #[serde(skip_serializing_if = "Option::is_none")]
     echo: Option<bool>,
 }
+
+impl ConnectCommand {
+    pub fn builder() -> ConnectCommandBuilder {
+        ConnectCommandBuilder::default()
+    }
+}
+
 impl ConnectCommandBuilder {
     fn default_name(&self) -> Result<Option<String>, String> {
         Ok(Some("nitox".into()))
@@ -81,7 +88,7 @@ impl Command for ConnectCommand {
 }
 
 #[cfg(test)]
-mod connect_command_tests {
+mod tests {
     use super::{ConnectCommand, ConnectCommandBuilder};
     use protocol::Command;
 
