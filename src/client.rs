@@ -219,11 +219,15 @@ impl NatsClient {
     }
 
     pub fn publish(&self, cmd: PubCommand) -> impl Future<Item = (), Error = NatsError> {
-        self.tx.send(Op::PUB(cmd)).map(|r| r).into_future()
+        self.tx.send(Op::PUB(cmd)).into_future()
     }
 
     pub fn unsubscribe(&self, cmd: UnsubCommand) -> impl Future<Item = (), Error = NatsError> {
-        self.tx.send(Op::UNSUB(cmd)).map(|r| r).into_future()
+        let inner_rx = self.rx.clone();
+        let sid = cmd.sid.clone();
+        self.tx
+            .send(Op::UNSUB(cmd))
+            .and_then(move |_| future::ok(inner_rx.remove_sid(&sid)))
     }
 
     pub fn subscribe(&self, cmd: SubCommand) -> impl Future<Item = impl Stream<Item = Message, Error = NatsError>> {

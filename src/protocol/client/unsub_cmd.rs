@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use protocol::{Command, CommandError};
+use protocol::{commands::SubCommand, Command, CommandError};
 
 #[derive(Debug, Clone, PartialEq, Builder)]
 pub struct UnsubCommand {
@@ -12,6 +12,15 @@ pub struct UnsubCommand {
 impl UnsubCommand {
     pub fn builder() -> UnsubCommandBuilder {
         UnsubCommandBuilder::default()
+    }
+}
+
+impl From<SubCommand> for UnsubCommand {
+    fn from(cmd: SubCommand) -> Self {
+        UnsubCommand {
+            sid: cmd.sid,
+            max_msgs: None,
+        }
     }
 }
 

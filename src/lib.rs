@@ -29,7 +29,6 @@ extern crate url;
 #[macro_use]
 mod error;
 
-// TODO: Add backoff mechanism for retry
 // TODO: Find a way to integration test the reconnection mechanism
 // TODO: Auto-pruning of unsub
 // TODO: Handle verbose mode
