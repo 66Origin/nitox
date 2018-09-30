@@ -42,6 +42,11 @@ pub enum NatsError {
     /// Cannot parse an IP
     #[fail(display = "AddrParseError: {}", _0)]
     AddrParseError(::std::net::AddrParseError),
+    /// Occurs when we cannot resolve the URI given using the local host's DNS resolving mechanisms
+    /// Will contain `Some(io::Error)` when the resolving has been tried with an error, and `None` when
+    /// resolving succeeded but gave no results
+    #[fail(display = "UriDNSResolveError: {:?}", _0)]
+    UriDNSResolveError(Option<io::Error>),
     /// Cannot reconnect to server after retrying once
     #[fail(display = "CannotReconnectToServer: cannot reconnect to server")]
     CannotReconnectToServer,

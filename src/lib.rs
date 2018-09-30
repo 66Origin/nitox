@@ -26,7 +26,9 @@
 ///!
 ///! ```rust
 ///! extern crate nitox;
-///! use nitox::{NatsClient, NatsClientOptions, protocol::commands::*};
+///! extern crate futures;
+///! use futures::{prelude::*, future};
+///! use nitox::{NatsClient, NatsClientOptions, NatsError, commands::*};
 ///!
 ///! fn connect_to_nats() -> impl Future<Item = NatsClient, Error = NatsError> {
 ///!     // Defaults as recommended per-spec, but you can customize them
@@ -37,14 +39,14 @@
 ///!         .build()
 ///!         .unwrap();
 ///!
-///!     NatsClient.from_options(options)
+///!     NatsClient::from_options(options)
 ///!         .and_then(|client| {
 ///!             // Makes the client send the CONNECT command to the server, but it's usable as-is if needed
 ///!             client.connect()
 ///!         })
 ///!         .and_then(|client| {
 ///!             // Client has sent its CONNECT command and is ready for usage
-///!             client
+///!             future::ok(client)
 ///!         })
 ///! }
 ///! ```

@@ -9,7 +9,7 @@ use futures::{
 };
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{SocketAddr, ToSocketAddrs},
     str::FromStr,
     sync::{Arc, RwLock},
 };
@@ -173,10 +173,19 @@ impl NatsClient {
     ///
     /// Returns `impl Future<Item = Self, Error = NatsError>`
     pub fn from_options(opts: NatsClientOptions) -> impl Future<Item = Self, Error = NatsError> {
-        let cluster_uri = opts.cluster_uri.clone();
         let tls_required = opts.connect_command.tls_required;
 
-        future::result(SocketAddr::from_str(&cluster_uri))
+        let cluster_uri = opts.cluster_uri.clone();
+        let cluster_sa = if let Ok(sockaddr) = SocketAddr::from_str(&cluster_uri) {
+            Ok(sockaddr)
+        } else {
+            match cluster_uri.to_socket_addrs() {
+                Ok(mut ips_iter) => ips_iter.next().ok_or(NatsError::UriDNSResolveError(None)),
+                Err(e) => Err(NatsError::UriDNSResolveError(Some(e))),
+            }
+        };
+
+        future::result(cluster_sa)
             .from_err()
             .and_then(move |cluster_sa| {
                 if tls_required {
