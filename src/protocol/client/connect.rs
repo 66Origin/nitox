@@ -2,6 +2,10 @@ use bytes::Bytes;
 use protocol::{Command, CommandError};
 use serde_json as json;
 
+/// The CONNECT message is the client version of the INFO message. Once the client has established a TCP/IP
+/// socket connection with the NATS server, and an INFO message has been received from the server, the client
+/// may send a CONNECT message to the NATS server to provide more information about the current connection as
+/// well as security information.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[builder(default)]
 pub struct ConnectCommand {

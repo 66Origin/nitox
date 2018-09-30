@@ -3,8 +3,10 @@ use error::NatsError;
 use protocol::{CommandError, Op};
 use tokio_codec::{Decoder, Encoder};
 
+/// `tokio-codec` implementation of the protocol parsing
 #[derive(Default, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct OpCodec {
+    /// Used as an optimization for buffer lookup
     next_index: usize,
 }
 

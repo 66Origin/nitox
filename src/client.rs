@@ -20,10 +20,14 @@ use error::NatsError;
 use net::*;
 use protocol::{commands::*, Op};
 
+/// Sink (write) part of a TCP stream
 type NatsSink = stream::SplitSink<NatsConnection>;
+/// Stream (read) part of a TCP stream
 type NatsStream = stream::SplitStream<NatsConnection>;
+/// Useless pretty much, just for code semantics
 type NatsSubscriptionId = String;
 
+/// Keep-alive for the sink, also supposed to take care of handling verbose messaging, but can't for now
 #[derive(Clone, Debug)]
 struct NatsClientSender {
     tx: mpsc::UnboundedSender<Op>,
@@ -45,6 +49,7 @@ impl NatsClientSender {
         self.verbose = verbose;
     }
 
+    /// Sends an OP to the server
     pub fn send(&self, op: Op) -> impl Future<Item = (), Error = NatsError> {
         //let _verbose = self.verbose.clone();
         self.tx
@@ -54,6 +59,7 @@ impl NatsClientSender {
     }
 }
 
+/// Internal multiplexer for incoming streams and subscriptions. Quite a piece of code, with almost no overhead yay
 #[derive(Debug)]
 struct NatsClientMultiplexer {
     other_tx: Arc<mpsc::UnboundedSender<Op>>,
@@ -113,11 +119,14 @@ impl NatsClientMultiplexer {
     }
 }
 
+/// Options that are to be given to the client for initialization
 #[derive(Debug, Default, Clone, Builder)]
 #[builder(setter(into))]
 pub struct NatsClientOptions {
-    connect_command: ConnectCommand,
-    cluster_uri: String,
+    /// CONNECT command that will be sent upon calling the `connect()` method
+    pub connect_command: ConnectCommand,
+    /// Cluster URI in the IP:PORT format
+    pub cluster_uri: String,
 }
 
 impl NatsClientOptions {
@@ -126,10 +135,16 @@ impl NatsClientOptions {
     }
 }
 
+/// The NATS Client. What you'll be using mostly. All the async handling is made internally except for
+/// the system messages that are forwarded on the `Stream` that the client implements
 pub struct NatsClient {
+    /// Backup of options
     opts: NatsClientOptions,
+    /// Stream of the messages that are not caught for subscriptions (only system messages like PING/PONG should be here)
     other_rx: Box<dyn Stream<Item = Op, Error = NatsError> + Send>,
+    /// Sink part to send commands
     tx: NatsClientSender,
+    /// Subscription multiplexer
     rx: Arc<NatsClientMultiplexer>,
 }
 
@@ -154,6 +169,9 @@ impl Stream for NatsClient {
 }
 
 impl NatsClient {
+    /// Creates a client and initiates a connection to the server
+    ///
+    /// Returns `impl Future<Item = Self, Error = NatsError>`
     pub fn from_options(opts: NatsClientOptions) -> impl Future<Item = Self, Error = NatsError> {
         let cluster_uri = opts.cluster_uri.clone();
         let tls_required = opts.connect_command.tls_required;
@@ -207,6 +225,9 @@ impl NatsClient {
             })
     }
 
+    /// Sends the CONNECT command to the server to setup connection
+    ///
+    /// Returns `impl Future<Item = Self, Error = NatsError>`
     pub fn connect(self) -> impl Future<Item = Self, Error = NatsError> {
         self.tx
             .send(Op::CONNECT(self.opts.connect_command.clone()))
@@ -214,22 +235,35 @@ impl NatsClient {
             .and_then(move |_| future::ok(self))
     }
 
+    /// Send a raw command to the server
+    ///
+    /// Returns `impl Future<Item = Self, Error = NatsError>`
     pub fn send(self, op: Op) -> impl Future<Item = Self, Error = NatsError> {
         self.tx.send(op).into_future().and_then(move |_| future::ok(self))
     }
 
+    /// Send a PUB command to the server
+    ///
+    /// Returns `impl Future<Item = (), Error = NatsError>`
     pub fn publish(&self, cmd: PubCommand) -> impl Future<Item = (), Error = NatsError> {
         self.tx.send(Op::PUB(cmd)).into_future()
     }
 
+    /// Send a UNSUB command to the server and de-register stream in the multiplexer
+    ///
+    /// Returns `impl Future<Item = (), Error = NatsError>`
     pub fn unsubscribe(&self, cmd: UnsubCommand) -> impl Future<Item = (), Error = NatsError> {
         let inner_rx = self.rx.clone();
         let sid = cmd.sid.clone();
-        self.tx
-            .send(Op::UNSUB(cmd))
-            .and_then(move |_| future::ok(inner_rx.remove_sid(&sid)))
+        self.tx.send(Op::UNSUB(cmd)).and_then(move |_| {
+            inner_rx.remove_sid(&sid);
+            future::ok(())
+        })
     }
 
+    /// Send a SUB command and register subscription stream in the multiplexer and return that `Stream` in a future
+    ///
+    /// Returns `impl Future<Item = impl Stream<Item = Message, Error = NatsError>>`
     pub fn subscribe(&self, cmd: SubCommand) -> impl Future<Item = impl Stream<Item = Message, Error = NatsError>> {
         let inner_rx = self.rx.clone();
         let sid = cmd.sid.clone();
@@ -238,6 +272,9 @@ impl NatsClient {
             .and_then(move |_| future::ok(inner_rx.for_sid(sid)))
     }
 
+    /// Performs a request to the server following the Request/Reply pattern. Returns a future containing the MSG that will be replied at some point by a third party
+    ///
+    /// Returns `impl Future<Item = Message, Error = NatsError>`
     pub fn request(&self, subject: String, payload: Bytes) -> impl Future<Item = Message, Error = NatsError> {
         let inbox = PubCommand::generate_reply_to();
         let pub_cmd = PubCommand {

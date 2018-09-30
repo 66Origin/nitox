@@ -13,11 +13,7 @@ use futures::{
     prelude::*,
     sync::{mpsc, oneshot},
 };
-use nitox::{
-    codec::OpCodec,
-    protocol::{commands::*, Op},
-    NatsClient, NatsClientOptions, NatsError,
-};
+use nitox::{codec::OpCodec, commands::*, NatsClient, NatsClientOptions, NatsError, Op};
 use std::sync::RwLock;
 use tokio_codec::Decoder;
 use tokio_tcp::TcpListener;

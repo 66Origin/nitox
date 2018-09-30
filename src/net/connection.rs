@@ -26,6 +26,7 @@ macro_rules! reco {
     };
 }
 
+/// State of the raw connection
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum NatsConnectionState {
     Connected,
@@ -33,16 +34,24 @@ pub(crate) enum NatsConnectionState {
     Disconnected,
 }
 
+/// Represents a connection to a NATS server. Implements `Sink` and `Stream`
 #[derive(Debug)]
 pub struct NatsConnection {
+    /// indicates if the connection is made over TLS
     pub(crate) is_tls: bool,
+    /// Server standardized IP address
     pub(crate) addr: SocketAddr,
+    /// Host of the server; Only used if connecting to a TLS-enabled server
     pub(crate) host: Option<String>,
+    /// Inner dual `Stream`/`Sink` of the TCP connection
     pub(crate) inner: Arc<RwLock<NatsConnectionInner>>,
+    /// Current state of the connection
     pub(crate) state: Arc<RwLock<NatsConnectionState>>,
 }
 
 impl NatsConnection {
+    /// Tries to reconnect once to the server; Only used internally. Blocks polling during reconnecting
+    /// by forcing the object to return `Async::NotReady`/`AsyncSink::NotReady`
     fn reconnect(&self) -> impl Future<Item = (), Error = NatsError> {
         if let Ok(mut state) = self.state.write() {
             *state = NatsConnectionState::Reconnecting;

@@ -12,6 +12,7 @@ use self::connection_inner::*;
 
 pub(crate) use self::connection::NatsConnection;
 
+/// Connect to a raw TCP socket
 pub(crate) fn connect(addr: SocketAddr) -> impl Future<Item = NatsConnection, Error = NatsError> {
     NatsConnectionInner::connect_tcp(&addr).map(move |socket| {
         debug!(target: "nitox", "Connected through TCP");
@@ -25,6 +26,7 @@ pub(crate) fn connect(addr: SocketAddr) -> impl Future<Item = NatsConnection, Er
     })
 }
 
+/// Connect to a TLS over TCP socket. Upgrade is performed automatically
 pub(crate) fn connect_tls(host: String, addr: SocketAddr) -> impl Future<Item = NatsConnection, Error = NatsError> {
     let inner_host = host.clone();
     NatsConnectionInner::connect_tcp(&addr)

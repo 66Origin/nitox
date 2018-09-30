@@ -2,6 +2,12 @@ use bytes::Bytes;
 use protocol::{Command, CommandError};
 use serde_json as json;
 
+/// As soon as the server accepts a connection from the client, it will send information about itself and the
+/// configuration and security requirements that are necessary for the client to successfully authenticate with
+/// the server and exchange messages.
+///
+/// When using the updated client protocol (see CONNECT below), INFO messages can be sent anytime by the server.
+/// This means clients with that protocol level need to be able to asynchronously handle INFO messages.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 pub struct ServerInfo {
     /// The unique identifier of the NATS server

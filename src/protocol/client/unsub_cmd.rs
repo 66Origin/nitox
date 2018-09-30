@@ -1,10 +1,14 @@
 use bytes::Bytes;
 use protocol::{commands::SubCommand, Command, CommandError};
 
+/// UNSUB unsubcribes the connection from the specified subject, or auto-unsubscribes after the
+/// specified number of messages has been received.
 #[derive(Debug, Clone, PartialEq, Builder)]
 pub struct UnsubCommand {
+    /// The unique alphanumeric subscription ID of the subject to unsubscribe from
     #[builder(setter(into))]
     pub sid: String,
+    /// An optional number of messages to wait for before automatically unsubscribing
     #[builder(default)]
     pub max_msgs: Option<u32>,
 }

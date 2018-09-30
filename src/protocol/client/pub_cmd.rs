@@ -2,14 +2,20 @@ use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{Command, CommandError};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
+/// The PUB message publishes the message payload to the given subject name, optionally supplying a reply subject.
+/// If a reply subject is supplied, it will be delivered to eligible subscribers along with the supplied payload.
+/// Note that the payload itself is optional.
 #[derive(Debug, Clone, PartialEq, Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct PubCommand {
+    /// The destination subject to publish to
     #[builder(setter(into))]
     pub subject: String,
+    /// The optional reply inbox subject that subscribers can use to send a response back to the publisher/requestor
     #[builder(default)]
     pub reply_to: Option<String>,
-    #[builder(setter(into))]
+    /// The message payload data
+    #[builder(default, setter(into))]
     pub payload: Bytes,
 }
 
@@ -18,6 +24,7 @@ impl PubCommand {
         PubCommandBuilder::default()
     }
 
+    /// Generates a random `reply_to` `String`
     pub fn generate_reply_to() -> String {
         let mut rng = thread_rng();
         rng.sample_iter(&Alphanumeric).take(16).collect()

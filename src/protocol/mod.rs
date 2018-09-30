@@ -1,8 +1,12 @@
 use bytes::Bytes;
 
+/// Trait used to implement a common interface for implementing new commands
 pub(crate) trait Command {
+    /// Command name as a static byte slice
     const CMD_NAME: &'static [u8];
+    /// Encodes the command into bytes
     fn into_vec(self) -> Result<Bytes, CommandError>;
+    /// Tries to parse a buffer into a command
     fn try_parse(buf: &[u8]) -> Result<Self, CommandError>
     where
         Self: Sized;

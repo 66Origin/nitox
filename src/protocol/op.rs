@@ -39,7 +39,7 @@ macro_rules! op_from_cmd {
 }
 
 impl Op {
-    /// Transforms the operation into a byte array
+    /// Transforms the OP into a byte slice
     pub fn into_bytes(self) -> Result<Bytes, CommandError> {
         Ok(match self {
             Op::INFO(si) => si.into_vec()?,

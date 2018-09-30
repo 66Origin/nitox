@@ -9,18 +9,23 @@ use tokio_tls::{TlsConnector, TlsStream};
 
 use error::NatsError;
 
+/// Inner raw stream enum over TCP and TLS/TCP
 #[derive(Debug)]
 pub(crate) enum NatsConnectionInner {
+    /// Raw TCP Stream framed connection
     Tcp(Box<Framed<TcpStream, OpCodec>>),
+    /// TLS over TCP Stream framed connection
     Tls(Box<Framed<TlsStream<TcpStream>, OpCodec>>),
 }
 
 impl NatsConnectionInner {
+    /// Connects to a TCP socket
     pub(crate) fn connect_tcp(addr: &SocketAddr) -> impl Future<Item = TcpStream, Error = NatsError> {
         debug!(target: "nitox", "Connecting to {} through TCP", addr);
         TcpStream::connect(addr).from_err()
     }
 
+    /// Upgrades an existing TCP socket to TLS over TCP
     pub(crate) fn upgrade_tcp_to_tls(
         host: &str,
         socket: TcpStream,

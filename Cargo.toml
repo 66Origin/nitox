@@ -1,7 +1,11 @@
 [package]
 authors = ["Mathieu Amiot <mathieu.amiot@yellowinnovation.fr>"]
-categories = ["database"]
-description = "Async Client for NATS"
+categories = [
+    "network-programming",
+    "web-programming",
+    "database",
+]
+description = "Nitox is a `tokio`-based client for NATS."
 documentation = "https://docs.rs/nitox"
 homepage = "https://github.com/YellowInnovation/nitox"
 include = [
@@ -17,7 +21,7 @@ license = "MIT/Apache-2.0"
 name = "nitox"
 readme = "README.md"
 repository = "https://github.com/YellowInnovation/nitox"
-version = "0.0.1"
+version = "0.1.0"
 
 [dependencies]
 bytes = "0.4"
@@ -34,9 +38,7 @@ serde_derive = "1.0"
 serde_json = { version = "1.0", features = ["preserve_order"] }
 tokio-codec = "0.1"
 tokio-executor = "0.1"
-tokio-io = "0.1"
 tokio-tcp = "0.1"
-tokio-timer = "0.2"
 tokio-tls = "0.2"
 url = "1.7"
 

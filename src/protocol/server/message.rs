@@ -1,15 +1,20 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{Command, CommandError};
 
+/// The MSG protocol message is used to deliver an application message to the client.
 #[derive(Debug, Clone, PartialEq, Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct Message {
+    /// Subject name this message was received on
     #[builder(setter(into))]
     pub subject: String,
+    /// The unique alphanumeric subscription ID of the subject
     #[builder(setter(into))]
     pub sid: String,
+    /// The inbox subject on which the publisher is listening for responses
     #[builder(default)]
     pub reply_to: Option<String>,
+    /// The message payload data
     #[builder(setter(into))]
     pub payload: Bytes,
 }
