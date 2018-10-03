@@ -47,21 +47,25 @@ impl Decoder for OpCodec {
             .iter()
             .position(|b| *b == b' ' || *b == b'\t' || *b == b'\r')
         {
-            debug!(target: "nitox", "codec detected command name {:?}", &buf[..command_offset]);
-            if let Some(command_body_offset) = buf[command_offset..].windows(2).position(|w| w == b"\r\n") {
-                let mut end_buf_pos = command_offset + command_body_offset + 2;
-                if &buf[..command_offset] == b"PUB" || &buf[..command_offset] == b"MSG" {
+            let command_end = self.next_index + command_offset;
+            debug!(target: "nitox", "codec detected command name {:?}", &buf[..command_end]);
+
+            if let Some(command_body_offset) = buf[command_end..].windows(2).position(|w| w == b"\r\n") {
+                let mut end_buf_pos = command_end + command_body_offset + 2;
+
+                if &buf[..command_end] == b"PUB" || &buf[..command_end] == b"MSG" {
                     debug!(target: "nitox", "detected PUB or MSG, looking for second CRLF");
                     if let Some(new_end) = buf[end_buf_pos..].windows(2).position(|w| w == b"\r\n") {
-                        debug!(target: "nitox", "found second CRLF at position {}", new_end);
+                        debug!(target: "nitox", "found second CRLF at position {}", end_buf_pos + new_end + 2);
                         end_buf_pos += new_end + 2;
                     } else {
                         debug!(target: "nitox", "command was incomplete");
                         return Ok(None);
                     }
                 }
+
                 debug!(target: "nitox", "codec detected command body {:?}", &buf[..end_buf_pos]);
-                match Op::from_bytes(&buf[..command_offset], &buf[..end_buf_pos]) {
+                match Op::from_bytes(&buf[..command_end], &buf[..end_buf_pos]) {
                     Err(CommandError::IncompleteCommandError) => {
                         debug!(target: "nitox", "command was incomplete");
                         self.next_index = buf.len();

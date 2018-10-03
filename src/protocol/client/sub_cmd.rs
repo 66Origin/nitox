@@ -24,7 +24,7 @@ impl SubCommand {
 
     /// Generates a random `sid` `String`
     pub fn generate_sid() -> String {
-        thread_rng().sample_iter(&Alphanumeric).take(8).collect()
+        thread_rng().sample_iter(&Alphanumeric).take(12).collect()
     }
 }
 
