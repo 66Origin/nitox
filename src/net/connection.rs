@@ -97,6 +97,13 @@ impl Sink for NatsConnection {
     type SinkItem = Op;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        if match self.state.try_read() {
+            Ok(state) => *state != NatsConnectionState::Connected,
+            _ => true,
+        } {
+            return Ok(AsyncSink::NotReady(item));
+        }
+
         if let Ok(mut inner) = self.inner.try_write() {
             match inner.start_send(item.clone()) {
                 Err(NatsError::ServerDisconnected(_)) => {
@@ -111,6 +118,13 @@ impl Sink for NatsConnection {
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        if match self.state.try_read() {
+            Ok(state) => *state != NatsConnectionState::Connected,
+            _ => true,
+        } {
+            return Ok(Async::NotReady);
+        }
+
         if let Ok(mut inner) = self.inner.try_write() {
             match inner.poll_complete() {
                 Err(NatsError::ServerDisconnected(_)) => {
@@ -130,6 +144,13 @@ impl Stream for NatsConnection {
     type Item = Op;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        if match self.state.try_read() {
+            Ok(state) => *state != NatsConnectionState::Connected,
+            _ => true,
+        } {
+            return Ok(Async::NotReady);
+        }
+
         if let Ok(mut inner) = self.inner.try_write() {
             match inner.poll() {
                 Err(NatsError::ServerDisconnected(_)) => {
