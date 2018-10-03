@@ -237,7 +237,7 @@ fn spawn_responder(
     Box::new(future::ok(()))
 }
 
-const ROUNDTRIP_COUNT: usize = 1_000;
+const ROUNDTRIP_COUNT: usize = 1_000_000;
 
 #[test]
 fn can_request_a_lot() {
