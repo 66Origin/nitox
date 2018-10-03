@@ -88,6 +88,8 @@ impl NatsClientMultiplexer {
                                 debug!(target: "nitox", "Found multiplexed receiver to send to {}", msg.sid);
                                 let _ = tx.unbounded_send(msg);
                             }
+                        } else {
+                            error!(target: "nitox", "Internal lock for subs multiplexing is busy");
                         }
                     }
                     // Forward the rest of the messages to the owning client
@@ -110,6 +112,8 @@ impl NatsClientMultiplexer {
         let (tx, rx) = mpsc::unbounded();
         if let Ok(mut subs) = self.subs_tx.write() {
             subs.insert(sid, tx);
+        } else {
+            error!(target: "nitox", "Internal lock for subs multiplexing is poisoned in for_sid");
         }
 
         rx.map_err(|_| NatsError::InnerBrokenChain)
@@ -118,6 +122,8 @@ impl NatsClientMultiplexer {
     pub fn remove_sid(&self, sid: &str) {
         if let Ok(mut subs) = self.subs_tx.write() {
             subs.remove(sid);
+        } else {
+            error!(target: "nitox", "Internal lock for subs multiplexing is poisoned in remove_sid");
         }
     }
 }
@@ -318,8 +324,8 @@ impl NatsClient {
             .inspect(|msg| debug!(target: "nitox", "Request saw msg in multiplexed stream {:#?}", msg))
             .take(1)
             .into_future()
-            .map(|(maybe_message, _)| maybe_message.unwrap())
-            .map_err(|_| NatsError::InnerBrokenChain)
+            .map(|(surely_message, _)| surely_message.unwrap())
+            .map_err(|(e, _)| e)
             .and_then(move |msg| {
                 rx_arc.remove_sid(&sid);
                 future::ok(msg)
