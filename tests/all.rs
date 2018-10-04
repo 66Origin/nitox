@@ -37,7 +37,19 @@ fn create_tcp_mock(
             .incoming()
             .map(move |socket| OpCodec::default().framed(socket))
             .from_err()
-            .and_then(|socket| socket.send(Op::PING))
+            .and_then(|socket| {
+                socket.send(Op::INFO(
+                    ServerInfo::builder()
+                        .server_id("nitox-nats")
+                        .version(::std::env::var("CARGO_PKG_VERSION").unwrap())
+                        .go("lol")
+                        .host("127.0.0.1")
+                        .port(4222u32)
+                        .max_payload(::std::u32::MAX)
+                        .build()
+                        .unwrap(),
+                ))
+            }).and_then(|socket| socket.send(Op::PING))
             .and_then(move |socket| {
                 let (sink, stream) = socket.split();
                 let (tx, rx) = mpsc::unbounded();
@@ -185,6 +197,62 @@ fn can_sub_and_pub() {
 }
 
 #[test]
+fn can_subscribe_for_1000_messages() {
+    elog!();
+    let mut runtime = tokio::runtime::Runtime::new().unwrap();
+    let connect_cmd = ConnectCommand::builder().build().unwrap();
+    let options = NatsClientOptions::builder()
+        .connect_command(connect_cmd)
+        .cluster_uri("127.0.0.1:4222")
+        .build()
+        .unwrap();
+
+    let sub_cmd = SubCommand::builder().subject("foo-1000").build().unwrap();
+    let unsub_cmd = UnsubCommand::builder()
+        .sid(sub_cmd.sid.clone())
+        .max_msgs(Some(1000))
+        .build()
+        .unwrap();
+
+    let fut = NatsClient::from_options(options)
+        .and_then(|client| client.connect())
+        .and_then(|client| {
+            client.subscribe(sub_cmd).and_then(move |stream| {
+                let _ = client.unsubscribe(unsub_cmd).wait();
+                let mut fut_vec = vec![];
+
+                for i in 1..1010 {
+                    fut_vec.push(
+                        client.publish(
+                            PubCommand::builder()
+                                .subject("foo-1000")
+                                .payload(format!("bar-{}", i))
+                                .build()
+                                .unwrap(),
+                        ),
+                    );
+                }
+
+                future::join_all(fut_vec).and_then(|_| stream.for_each(|_| future::ok(())))
+            })
+        });
+
+    let (tx, rx) = oneshot::channel();
+    runtime.spawn(fut.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));
+    let connection_result = rx.wait().expect("Cannot wait for a result");
+    let _ = runtime.shutdown_now().wait();
+    debug!(target: "nitox", "can_subscribe_for_1000_messages::connection_result {:#?}", connection_result);
+    println!("{:?}", connection_result);
+    match connection_result {
+        Ok(msg) => panic!("We shouldn't get Ok since we reached the end of the stream {:?}", msg),
+        Err(NatsError::SubscriptionReachedMaxMsgs(i)) => {
+            assert_eq!(i, 1000);
+        }
+        Err(e) => panic!("{}", e),
+    }
+}
+
+#[test]
 fn can_request() {
     elog!();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
@@ -283,39 +351,6 @@ fn can_request_a_lot() {
 }
 
 #[test]
-fn can_ping_to_pong() {
-    elog!();
-    let mut runtime = tokio::runtime::Runtime::new().unwrap();
-    let connect_cmd = ConnectCommand::builder().build().unwrap();
-    let options = NatsClientOptions::builder()
-        .connect_command(connect_cmd)
-        .cluster_uri("127.0.0.1:4222")
-        .build()
-        .unwrap();
-
-    let fut = NatsClient::from_options(options)
-        .and_then(|client| client.connect())
-        .and_then(|client| client.send(Op::PING))
-        .and_then(|client| {
-            client
-                .skip_while(|op| future::ok(*op != Op::PONG))
-                .take(1)
-                .into_future()
-                .map(|(op, _)| op.unwrap())
-                .map_err(|(e, _)| e)
-        });
-
-    let (tx, rx) = oneshot::channel();
-    runtime.spawn(fut.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));
-    let connection_result = rx.wait().expect("Cannot wait for a result");
-    let _ = runtime.shutdown_now().wait();
-    debug!(target: "nitox", "can_ping_to_pong::connection_result {:#?}", connection_result);
-    assert!(connection_result.is_ok());
-    let op = connection_result.unwrap();
-    assert_eq!(op, Op::PONG);
-}
-
-#[test]
 fn can_pong_to_ping() {
     elog!();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
@@ -332,7 +367,13 @@ fn can_pong_to_ping() {
 
     let fut = NatsClient::from_options(options)
         .and_then(|client| client.connect())
-        .and_then(|client| client.request("foo2".into(), "bar".into()));
+        .and_then(|client| {
+            client
+                .skip_while(|op| future::ok(*op != Op::PING))
+                .into_future()
+                .map(|(op, _)| op.unwrap())
+                .map_err(|(e, _)| e)
+        });
 
     let (tx, rx) = oneshot::channel();
     runtime.spawn(fut.then(|r| tx.send(r).map_err(|e| panic!("Cannot send Result {:?}", e))));

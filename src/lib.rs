@@ -101,8 +101,6 @@ extern crate url;
 #[macro_use]
 mod error;
 
-// TODO: Find a way to integration test the reconnection mechanism
-// TODO: Auto-pruning of subscriptions being unsubscribed after X messages
 // TODO: Handle verbose mode
 // TODO: Handle pedantic mode
 // TODO: Switch parsing to using `nom`

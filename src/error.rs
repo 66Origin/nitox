@@ -56,6 +56,9 @@ pub enum NatsError {
     /// Generic string error
     #[fail(display = "GenericError: {}", _0)]
     GenericError(String),
+    /// Error thrown when a subscription is fused after reaching the maximum messages
+    #[fail(display = "SubscriptionReachedMaxMsgs after {} messages", _0)]
+    SubscriptionReachedMaxMsgs(u32),
 }
 
 impl From<io::Error> for NatsError {

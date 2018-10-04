@@ -59,16 +59,23 @@ impl NatsClientSender {
     }
 }
 
+#[derive(Debug)]
+struct SubscriptionSink {
+    tx: mpsc::UnboundedSender<Message>,
+    max_count: Option<u32>,
+    count: u32,
+}
+
 /// Internal multiplexer for incoming streams and subscriptions. Quite a piece of code, with almost no overhead yay
 #[derive(Debug)]
 struct NatsClientMultiplexer {
     other_tx: Arc<mpsc::UnboundedSender<Op>>,
-    subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, mpsc::UnboundedSender<Message>>>>,
+    subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, SubscriptionSink>>>,
 }
 
 impl NatsClientMultiplexer {
     pub fn new(stream: NatsStream) -> (Self, mpsc::UnboundedReceiver<Op>) {
-        let subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, mpsc::UnboundedSender<Message>>>> =
+        let subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, SubscriptionSink>>> =
             Arc::new(RwLock::new(HashMap::default()));
 
         let (other_tx, other_rx) = mpsc::unbounded();
@@ -84,9 +91,9 @@ impl NatsClientMultiplexer {
                     Op::MSG(msg) => {
                         debug!(target: "nitox", "Found MSG from global Stream {:?}", msg);
                         if let Ok(stx) = stx_inner.read() {
-                            if let Some(tx) = stx.get(&msg.sid) {
+                            if let Some(s) = stx.get(&msg.sid) {
                                 debug!(target: "nitox", "Found multiplexed receiver to send to {}", msg.sid);
-                                let _ = tx.unbounded_send(msg);
+                                let _ = s.tx.unbounded_send(msg);
                             }
                         } else {
                             error!(target: "nitox", "Internal lock for subs multiplexing is busy");
@@ -111,7 +118,14 @@ impl NatsClientMultiplexer {
     pub fn for_sid(&self, sid: NatsSubscriptionId) -> impl Stream<Item = Message, Error = NatsError> {
         let (tx, rx) = mpsc::unbounded();
         if let Ok(mut subs) = self.subs_tx.write() {
-            subs.insert(sid, tx);
+            subs.insert(
+                sid,
+                SubscriptionSink {
+                    tx,
+                    max_count: None,
+                    count: 0,
+                },
+            );
         } else {
             error!(target: "nitox", "Internal lock for subs multiplexing is poisoned in for_sid");
         }
@@ -219,14 +233,11 @@ impl NatsClient {
                 tokio_executor::spawn(
                     other_rx
                         .for_each(move |op| {
-                            match op {
-                                Op::PING => {
-                                    tokio_executor::spawn(tx_inner.send(Op::PONG).map_err(|_| ()));
-                                }
-                                o => {
-                                    let _ = tmp_other_tx.unbounded_send(o);
-                                }
+                            if let Op::PING = op {
+                                tokio_executor::spawn(tx_inner.send(Op::PONG).map_err(|_| ()));
                             }
+
+                            let _ = tmp_other_tx.unbounded_send(op);
                             future::ok(())
                         }).into_future()
                         .map_err(|_| ()),
@@ -249,45 +260,80 @@ impl NatsClient {
     pub fn connect(self) -> impl Future<Item = Self, Error = NatsError> {
         self.tx
             .send(Op::CONNECT(self.opts.connect_command.clone()))
-            .into_future()
             .and_then(move |_| future::ok(self))
     }
 
     /// Send a raw command to the server
     ///
     /// Returns `impl Future<Item = Self, Error = NatsError>`
+    #[deprecated(
+        since = "0.1.4",
+        note = "Using this method prevents the library to track what you are sending to the server and causes memory leaks in case of subscriptions/unsubs, it'll be fully removed in v0.2.0"
+    )]
     pub fn send(self, op: Op) -> impl Future<Item = Self, Error = NatsError> {
-        self.tx.send(op).into_future().and_then(move |_| future::ok(self))
+        self.tx.send(op).and_then(move |_| future::ok(self))
     }
 
     /// Send a PUB command to the server
     ///
     /// Returns `impl Future<Item = (), Error = NatsError>`
     pub fn publish(&self, cmd: PubCommand) -> impl Future<Item = (), Error = NatsError> {
-        self.tx.send(Op::PUB(cmd)).into_future()
+        self.tx.send(Op::PUB(cmd))
     }
 
     /// Send a UNSUB command to the server and de-register stream in the multiplexer
     ///
     /// Returns `impl Future<Item = (), Error = NatsError>`
     pub fn unsubscribe(&self, cmd: UnsubCommand) -> impl Future<Item = (), Error = NatsError> {
-        let inner_rx = self.rx.clone();
-        let sid = cmd.sid.clone();
-        self.tx.send(Op::UNSUB(cmd)).and_then(move |_| {
-            inner_rx.remove_sid(&sid);
-            future::ok(())
-        })
+        if let Some(max) = cmd.max_msgs {
+            if let Ok(mut subs) = self.rx.subs_tx.write() {
+                if let Some(mut s) = subs.get_mut(&cmd.sid) {
+                    s.max_count = Some(max);
+                }
+            }
+        }
+
+        self.tx.send(Op::UNSUB(cmd))
     }
 
     /// Send a SUB command and register subscription stream in the multiplexer and return that `Stream` in a future
     ///
     /// Returns `impl Future<Item = impl Stream<Item = Message, Error = NatsError>>`
-    pub fn subscribe(&self, cmd: SubCommand) -> impl Future<Item = impl Stream<Item = Message, Error = NatsError>> {
+    pub fn subscribe(
+        &self,
+        cmd: SubCommand,
+    ) -> impl Future<Item = impl Stream<Item = Message, Error = NatsError>, Error = NatsError> {
         let inner_rx = self.rx.clone();
         let sid = cmd.sid.clone();
-        self.tx
-            .send(Op::SUB(cmd))
-            .and_then(move |_| future::ok(inner_rx.for_sid(sid)))
+        self.tx.send(Op::SUB(cmd)).and_then(move |_| {
+            let stream = inner_rx.for_sid(sid.clone()).and_then(move |msg| {
+                if let Ok(mut stx) = inner_rx.subs_tx.write() {
+                    let mut delete = None;
+                    debug!(target: "nitox", "Retrieving sink for sid {:?}", sid);
+                    if let Some(mut s) = stx.get_mut(&sid) {
+                        debug!(target: "nitox", "Checking if count exists");
+                        if let Some(max_count) = s.max_count {
+                            s.count += 1;
+                            debug!(target: "nitox", "Max: {} / current: {}", max_count, s.count);
+                            if s.count >= max_count {
+                                debug!(target: "nitox", "Starting deletion");
+                                delete = Some(max_count);
+                            }
+                        }
+                    }
+
+                    if let Some(count) = delete.take() {
+                        debug!(target: "nitox", "Deleted stream for sid {} at count {}", sid, count);
+                        stx.remove(&sid);
+                        return Err(NatsError::SubscriptionReachedMaxMsgs(count));
+                    }
+                }
+
+                Ok(msg)
+            });
+
+            future::ok(stream)
+        })
     }
 
     /// Performs a request to the server following the Request/Reply pattern. Returns a future containing the MSG that will be replied at some point by a third party
