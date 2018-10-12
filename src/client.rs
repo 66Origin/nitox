@@ -164,7 +164,7 @@ pub struct NatsClient {
     /// Backup of options
     opts: NatsClientOptions,
     /// Stream of the messages that are not caught for subscriptions (only system messages like PING/PONG should be here)
-    other_rx: Box<dyn Stream<Item = Op, Error = NatsError> + Send>,
+    other_rx: Box<dyn Stream<Item = Op, Error = NatsError> + Send + Sync>,
     /// Sink part to send commands
     tx: NatsClientSender,
     /// Subscription multiplexer
