@@ -115,7 +115,7 @@ impl NatsClientMultiplexer {
         (NatsClientMultiplexer { subs_tx, other_tx }, other_rx)
     }
 
-    pub fn for_sid(&self, sid: NatsSubscriptionId) -> impl Stream<Item = Message, Error = NatsError> {
+    pub fn for_sid(&self, sid: NatsSubscriptionId) -> impl Stream<Item = Message, Error = NatsError> + Send + Sync {
         let (tx, rx) = mpsc::unbounded();
         if let Ok(mut subs) = self.subs_tx.write() {
             subs.insert(
@@ -195,7 +195,7 @@ impl NatsClient {
     /// Creates a client and initiates a connection to the server
     ///
     /// Returns `impl Future<Item = Self, Error = NatsError>`
-    pub fn from_options(opts: NatsClientOptions) -> impl Future<Item = Self, Error = NatsError> {
+    pub fn from_options(opts: NatsClientOptions) -> impl Future<Item = Self, Error = NatsError> + Send + Sync {
         let tls_required = opts.connect_command.tls_required;
 
         let cluster_uri = opts.cluster_uri.clone();
@@ -257,7 +257,7 @@ impl NatsClient {
     /// Sends the CONNECT command to the server to setup connection
     ///
     /// Returns `impl Future<Item = Self, Error = NatsError>`
-    pub fn connect(self) -> impl Future<Item = Self, Error = NatsError> {
+    pub fn connect(self) -> impl Future<Item = Self, Error = NatsError> + Send + Sync {
         self.tx
             .send(Op::CONNECT(self.opts.connect_command.clone()))
             .and_then(move |_| future::ok(self))
@@ -277,14 +277,14 @@ impl NatsClient {
     /// Send a PUB command to the server
     ///
     /// Returns `impl Future<Item = (), Error = NatsError>`
-    pub fn publish(&self, cmd: PubCommand) -> impl Future<Item = (), Error = NatsError> {
+    pub fn publish(&self, cmd: PubCommand) -> impl Future<Item = (), Error = NatsError> + Send + Sync {
         self.tx.send(Op::PUB(cmd))
     }
 
     /// Send a UNSUB command to the server and de-register stream in the multiplexer
     ///
     /// Returns `impl Future<Item = (), Error = NatsError>`
-    pub fn unsubscribe(&self, cmd: UnsubCommand) -> impl Future<Item = (), Error = NatsError> {
+    pub fn unsubscribe(&self, cmd: UnsubCommand) -> impl Future<Item = (), Error = NatsError> + Send + Sync {
         if let Some(max) = cmd.max_msgs {
             if let Ok(mut subs) = self.rx.subs_tx.write() {
                 if let Some(mut s) = subs.get_mut(&cmd.sid) {
@@ -302,7 +302,8 @@ impl NatsClient {
     pub fn subscribe(
         &self,
         cmd: SubCommand,
-    ) -> impl Future<Item = impl Stream<Item = Message, Error = NatsError>, Error = NatsError> {
+    ) -> impl Future<Item = impl Stream<Item = Message, Error = NatsError> + Send + Sync, Error = NatsError> + Send + Sync
+    {
         let inner_rx = self.rx.clone();
         let sid = cmd.sid.clone();
         self.tx.send(Op::SUB(cmd)).and_then(move |_| {
@@ -339,7 +340,11 @@ impl NatsClient {
     /// Performs a request to the server following the Request/Reply pattern. Returns a future containing the MSG that will be replied at some point by a third party
     ///
     /// Returns `impl Future<Item = Message, Error = NatsError>`
-    pub fn request(&self, subject: String, payload: Bytes) -> impl Future<Item = Message, Error = NatsError> {
+    pub fn request(
+        &self,
+        subject: String,
+        payload: Bytes,
+    ) -> impl Future<Item = Message, Error = NatsError> + Send + Sync {
         let inbox = PubCommand::generate_reply_to();
         let pub_cmd = PubCommand {
             subject,
