@@ -14,7 +14,7 @@ Missing features:
 - [x] Find a way to integration test the reconnection mechanism - but it has actually been hand-tested and works
 - [x] Auto-pruning of subscriptions being unsubscribed after X messages - It's actually a bug, since a stream stays open albeit sleeping
 - [ ] Handle verbose mode
-- [ ] Handle pedantic mode - Should work OOB since we're closely following the protocol
+- [x] Handle pedantic mode - Should work OOB since we're closely following the protocol (Edit: it does)
 - [ ] Switch parsing to using `nom` - We're not sure we can handle very weird clients; we're fine talking to official ones right now
 - [ ] Add support for NATS Streaming Server - Should be pretty easy with `prost` since we already have the async architecture going on
 
