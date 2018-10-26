@@ -21,7 +21,7 @@ license = "MIT/Apache-2.0"
 name = "nitox"
 readme = "README.md"
 repository = "https://github.com/YellowInnovation/nitox"
-version = "0.1.6"
+version = "0.1.7"
 
 [[bench]]
 harness = false
