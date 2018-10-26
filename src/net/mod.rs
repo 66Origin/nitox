@@ -1,6 +1,7 @@
 use futures::prelude::*;
+use parking_lot::RwLock;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 pub(crate) mod connection;
 mod connection_inner;

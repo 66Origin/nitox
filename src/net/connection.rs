@@ -2,10 +2,8 @@ use futures::{
     future::{self, Either},
     prelude::*,
 };
-use std::{
-    net::SocketAddr,
-    sync::{Arc, RwLock},
-};
+use parking_lot::RwLock;
+use std::{net::SocketAddr, sync::Arc};
 use tokio_executor;
 
 use error::NatsError;
@@ -15,9 +13,7 @@ use super::connection_inner::NatsConnectionInner;
 
 macro_rules! reco {
     ($conn:ident) => {
-        if let Ok(mut state) = $conn.state.write() {
-            *state = NatsConnectionState::Disconnected;
-        }
+        *$conn.state.write() = NatsConnectionState::Disconnected;
 
         tokio_executor::spawn($conn.reconnect().map_err(|e| {
             debug!(target: "nitox", "Reconnection error: {}", e);
@@ -53,9 +49,7 @@ impl NatsConnection {
     /// Tries to reconnect once to the server; Only used internally. Blocks polling during reconnecting
     /// by forcing the object to return `Async::NotReady`/`AsyncSink::NotReady`
     fn reconnect(&self) -> impl Future<Item = (), Error = NatsError> {
-        if let Ok(mut state) = self.state.write() {
-            *state = NatsConnectionState::Reconnecting;
-        }
+        *self.state.write() = NatsConnectionState::Reconnecting;
 
         let inner_arc = Arc::clone(&self.inner);
         let inner_state = Arc::clone(&self.state);
@@ -73,21 +67,12 @@ impl NatsConnection {
                     Either::B(future::ok(NatsConnectionInner::from(socket)))
                 }
             }).and_then(move |inner| {
-                let res = if let Ok(mut inner_conn) = inner_arc.write() {
-                    *inner_conn = inner;
-                    if let Ok(mut state) = inner_state.write() {
-                        *state = NatsConnectionState::Connected;
-                    }
-                    debug!(target: "nitox", "Successfully swapped reconnected underlying connection");
-                    Ok(())
-                } else {
-                    debug!(target: "nitox", "Cannot reconnect to server");
-                    Err(NatsError::CannotReconnectToServer)
-                };
-
-                drop(inner_arc);
-
-                res
+                {
+                    *inner_arc.write() = inner;
+                    *inner_state.write() = NatsConnectionState::Connected;
+                }
+                debug!(target: "nitox", "Successfully swapped reconnected underlying connection");
+                Ok(())
             })
     }
 }
@@ -98,13 +83,13 @@ impl Sink for NatsConnection {
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         if match self.state.try_read() {
-            Ok(state) => *state != NatsConnectionState::Connected,
+            Some(state) => *state != NatsConnectionState::Connected,
             _ => true,
         } {
             return Ok(AsyncSink::NotReady(item));
         }
 
-        if let Ok(mut inner) = self.inner.try_write() {
+        if let Some(mut inner) = self.inner.try_write() {
             match inner.start_send(item.clone()) {
                 Err(NatsError::ServerDisconnected(_)) => {
                     reco!(self);
@@ -119,13 +104,13 @@ impl Sink for NatsConnection {
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
         if match self.state.try_read() {
-            Ok(state) => *state != NatsConnectionState::Connected,
+            Some(state) => *state != NatsConnectionState::Connected,
             _ => true,
         } {
             return Ok(Async::NotReady);
         }
 
-        if let Ok(mut inner) = self.inner.try_write() {
+        if let Some(mut inner) = self.inner.try_write() {
             match inner.poll_complete() {
                 Err(NatsError::ServerDisconnected(_)) => {
                     reco!(self);
@@ -145,13 +130,13 @@ impl Stream for NatsConnection {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if match self.state.try_read() {
-            Ok(state) => *state != NatsConnectionState::Connected,
+            Some(state) => *state != NatsConnectionState::Connected,
             _ => true,
         } {
             return Ok(Async::NotReady);
         }
 
-        if let Ok(mut inner) = self.inner.try_write() {
+        if let Some(mut inner) = self.inner.try_write() {
             match inner.poll() {
                 Err(NatsError::ServerDisconnected(_)) => {
                     reco!(self);

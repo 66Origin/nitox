@@ -85,6 +85,7 @@ extern crate serde_derive;
 extern crate serde_json;
 
 extern crate bytes;
+extern crate parking_lot;
 extern crate rand;
 
 #[macro_use]

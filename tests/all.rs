@@ -3,6 +3,7 @@ extern crate log;
 extern crate env_logger;
 extern crate futures;
 extern crate nitox;
+extern crate parking_lot;
 extern crate tokio;
 extern crate tokio_codec;
 extern crate tokio_executor;
@@ -14,7 +15,7 @@ use futures::{
     sync::{mpsc, oneshot},
 };
 use nitox::{codec::OpCodec, commands::*, NatsClient, NatsClientOptions, NatsError, Op};
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use tokio_codec::Decoder;
 use tokio_tcp::TcpListener;
 
@@ -78,9 +79,7 @@ fn create_tcp_mock(
                                 let _ = tx.unbounded_send(Op::OK);
                             }
 
-                            if let Ok(mut sid) = sid_lock.write() {
-                                *sid = cmd.sid;
-                            }
+                            *sid_lock.write() = cmd.sid;
                         }
                         Op::PUB(cmd) => {
                             debug!(target: "nitox", "Got PUB command {:#?}", cmd);
@@ -90,7 +89,8 @@ fn create_tcp_mock(
                             let mut builder = Message::builder();
                             let sub = cmd.subject.clone();
                             builder.subject(cmd.reply_to.unwrap_or(sub));
-                            if let Ok(sid) = sid_lock.read() {
+                            {
+                                let sid = sid_lock.read();
                                 builder.sid((*sid).clone());
                             }
                             builder.payload("bar");

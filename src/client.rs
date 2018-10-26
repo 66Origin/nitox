@@ -7,11 +7,12 @@ use futures::{
     sync::mpsc,
     Future,
 };
+use parking_lot::RwLock;
 use std::{
     collections::HashMap,
     net::{SocketAddr, ToSocketAddrs},
     str::FromStr,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 use tokio_executor;
 use url::Url;
@@ -90,13 +91,9 @@ impl NatsClientMultiplexer {
                 match op {
                     Op::MSG(msg) => {
                         debug!(target: "nitox", "Found MSG from global Stream {:?}", msg);
-                        if let Ok(stx) = stx_inner.read() {
-                            if let Some(s) = stx.get(&msg.sid) {
-                                debug!(target: "nitox", "Found multiplexed receiver to send to {}", msg.sid);
-                                let _ = s.tx.unbounded_send(msg);
-                            }
-                        } else {
-                            error!(target: "nitox", "Internal lock for subs multiplexing is busy");
+                        if let Some(s) = (*stx_inner.read()).get(&msg.sid) {
+                            debug!(target: "nitox", "Found multiplexed receiver to send to {}", msg.sid);
+                            let _ = s.tx.unbounded_send(msg);
                         }
                     }
                     // Forward the rest of the messages to the owning client
@@ -117,28 +114,20 @@ impl NatsClientMultiplexer {
 
     pub fn for_sid(&self, sid: NatsSubscriptionId) -> impl Stream<Item = Message, Error = NatsError> + Send + Sync {
         let (tx, rx) = mpsc::unbounded();
-        if let Ok(mut subs) = self.subs_tx.write() {
-            subs.insert(
-                sid,
-                SubscriptionSink {
-                    tx,
-                    max_count: None,
-                    count: 0,
-                },
-            );
-        } else {
-            error!(target: "nitox", "Internal lock for subs multiplexing is poisoned in for_sid");
-        }
+        (*self.subs_tx.write()).insert(
+            sid,
+            SubscriptionSink {
+                tx,
+                max_count: None,
+                count: 0,
+            },
+        );
 
         rx.map_err(|_| NatsError::InnerBrokenChain)
     }
 
     pub fn remove_sid(&self, sid: &str) {
-        if let Ok(mut subs) = self.subs_tx.write() {
-            subs.remove(sid);
-        } else {
-            error!(target: "nitox", "Internal lock for subs multiplexing is poisoned in remove_sid");
-        }
+        (*self.subs_tx.write()).remove(sid);
     }
 }
 
@@ -286,10 +275,8 @@ impl NatsClient {
     /// Returns `impl Future<Item = (), Error = NatsError>`
     pub fn unsubscribe(&self, cmd: UnsubCommand) -> impl Future<Item = (), Error = NatsError> + Send + Sync {
         if let Some(max) = cmd.max_msgs {
-            if let Ok(mut subs) = self.rx.subs_tx.write() {
-                if let Some(mut s) = subs.get_mut(&cmd.sid) {
-                    s.max_count = Some(max);
-                }
+            if let Some(mut s) = (*self.rx.subs_tx.write()).get_mut(&cmd.sid) {
+                s.max_count = Some(max);
             }
         }
 
@@ -308,10 +295,11 @@ impl NatsClient {
         let sid = cmd.sid.clone();
         self.tx.send(Op::SUB(cmd)).and_then(move |_| {
             let stream = inner_rx.for_sid(sid.clone()).and_then(move |msg| {
-                if let Ok(mut stx) = inner_rx.subs_tx.write() {
+                {
+                    let mut stx = inner_rx.subs_tx.write();
                     let mut delete = None;
                     debug!(target: "nitox", "Retrieving sink for sid {:?}", sid);
-                    if let Some(mut s) = stx.get_mut(&sid) {
+                    if let Some(s) = stx.get_mut(&sid) {
                         debug!(target: "nitox", "Checking if count exists");
                         if let Some(max_count) = s.max_count {
                             s.count += 1;
