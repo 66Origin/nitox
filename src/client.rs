@@ -152,6 +152,8 @@ impl NatsClientOptions {
 pub struct NatsClient {
     /// Backup of options
     opts: NatsClientOptions,
+    /// Server info
+    server_info: Arc<RwLock<Option<ServerInfo>>>,
     /// Stream of the messages that are not caught for subscriptions (only system messages like PING/PONG should be here)
     other_rx: Box<dyn Stream<Item = Op, Error = NatsError> + Send + Sync>,
     /// Sink part to send commands
@@ -219,25 +221,36 @@ impl NatsClient {
 
                 let (tmp_other_tx, tmp_other_rx) = mpsc::unbounded();
                 let tx_inner = tx.clone();
-                tokio_executor::spawn(
-                    other_rx
-                        .for_each(move |op| {
-                            if let Op::PING = op {
-                                tokio_executor::spawn(tx_inner.send(Op::PONG).map_err(|_| ()));
-                            }
-
-                            let _ = tmp_other_tx.unbounded_send(op);
-                            future::ok(())
-                        }).into_future()
-                        .map_err(|_| ()),
-                );
-
                 let client = NatsClient {
                     tx,
+                    server_info: Arc::new(RwLock::new(None)),
                     other_rx: Box::new(tmp_other_rx.map_err(|_| NatsError::InnerBrokenChain)),
                     rx: Arc::new(rx),
                     opts,
                 };
+
+                let server_info_arc = Arc::clone(&client.server_info);
+
+                tokio_executor::spawn(
+                    other_rx
+                        .for_each(move |op| {
+                            match op {
+                                Op::PING => {
+                                    tokio_executor::spawn(tx_inner.send(Op::PONG).map_err(|_| ()));
+                                    let _ = tmp_other_tx.unbounded_send(op);
+                                }
+                                Op::INFO(server_info) => {
+                                    *server_info_arc.write() = Some(server_info);
+                                }
+                                op => {
+                                    let _ = tmp_other_tx.unbounded_send(op);
+                                }
+                            }
+
+                            future::ok(())
+                        }).into_future()
+                        .map_err(|_| ()),
+                );
 
                 future::ok(client)
             })
@@ -267,7 +280,13 @@ impl NatsClient {
     ///
     /// Returns `impl Future<Item = (), Error = NatsError>`
     pub fn publish(&self, cmd: PubCommand) -> impl Future<Item = (), Error = NatsError> + Send + Sync {
-        self.tx.send(Op::PUB(cmd))
+        if let Some(ref server_info) = *self.server_info.read() {
+            if cmd.payload.len() > server_info.max_payload as usize {
+                return Either::A(future::err(NatsError::MaxPayloadOverflow(server_info.max_payload)));
+            }
+        }
+
+        Either::B(self.tx.send(Op::PUB(cmd)))
     }
 
     /// Send a UNSUB command to the server and de-register stream in the multiplexer
@@ -333,6 +352,12 @@ impl NatsClient {
         subject: String,
         payload: Bytes,
     ) -> impl Future<Item = Message, Error = NatsError> + Send + Sync {
+        if let Some(ref server_info) = *self.server_info.read() {
+            if payload.len() > server_info.max_payload as usize {
+                return Either::A(future::err(NatsError::MaxPayloadOverflow(server_info.max_payload)));
+            }
+        }
+
         let inbox = PubCommand::generate_reply_to();
         let pub_cmd = PubCommand {
             subject,
@@ -370,10 +395,12 @@ impl NatsClient {
                 future::ok(msg)
             });
 
-        self.tx
-            .send(Op::SUB(sub_cmd))
-            .and_then(move |_| tx1.send(Op::UNSUB(unsub_cmd)))
-            .and_then(move |_| tx2.send(Op::PUB(pub_cmd)))
-            .and_then(move |_| stream)
+        Either::B(
+            self.tx
+                .send(Op::SUB(sub_cmd))
+                .and_then(move |_| tx1.send(Op::UNSUB(unsub_cmd)))
+                .and_then(move |_| tx2.send(Op::PUB(pub_cmd)))
+                .and_then(move |_| stream),
+        )
     }
 }

@@ -53,6 +53,12 @@ pub enum NatsError {
     /// Something went wrong in one of the Reciever/Sender pairs
     #[fail(display = "InnerBrokenChain: the sender/receiver pair has been disconnected")]
     InnerBrokenChain,
+    /// The user supplied a too big payload for the server
+    #[fail(
+        display = "MaxPayloadOverflow: the given payload exceeds the server setting (max_payload_size = {})",
+        _0
+    )]
+    MaxPayloadOverflow(u32),
     /// Generic string error
     #[fail(display = "GenericError: {}", _0)]
     GenericError(String),

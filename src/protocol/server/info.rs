@@ -12,50 +12,50 @@ use serde_json as json;
 pub struct ServerInfo {
     /// The unique identifier of the NATS server
     #[builder(setter(into))]
-    server_id: String,
+    pub(crate) server_id: String,
     /// The version of the NATS server
     #[builder(setter(into))]
-    version: String,
+    pub(crate) version: String,
     /// The version of golang the NATS server was built with
     #[builder(setter(into))]
-    go: String,
+    pub(crate) go: String,
     /// The IP address used to start the NATS server, by default this will be 0.0.0.0 and can be configured with
     /// `-client_advertise host:port`
     #[builder(setter(into))]
-    host: String,
+    pub(crate) host: String,
     /// The port number the NATS server is configured to listen on
     #[builder(setter(into))]
-    port: u32,
+    pub(crate) port: u32,
     /// Maximum payload size, in bytes, that the server will accept from the client.
     #[builder(setter(into))]
-    max_payload: u32,
+    pub(crate) max_payload: u32,
     /// An integer indicating the protocol version of the server. The server version 1.2.0 sets this to 1 to indicate
     /// that it supports the “Echo” feature.
     #[builder(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    proto: Option<u8>,
+    pub(crate) proto: Option<u8>,
     /// An optional unsigned integer (64 bits) representing the internal client identifier in the server. This can be
     /// used to filter client connections in monitoring, correlate with error logs, etc…
     #[builder(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    client_id: Option<u64>,
+    pub(crate) client_id: Option<u64>,
     /// If this is set, then the client should try to authenticate upon connect.
     #[builder(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    auth_required: Option<bool>,
+    pub(crate) auth_required: Option<bool>,
     /// If this is set, then the client must perform the TLS/1.2 handshake. Note, this used to be ssl_required and has
     /// been updated along with the protocol from SSL to TLS.
     #[builder(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    tls_required: Option<bool>,
+    pub(crate) tls_required: Option<bool>,
     /// If this is set, the client must provide a valid certificate during the TLS handshake.
     #[builder(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    tls_verify: Option<bool>,
+    pub(crate) tls_verify: Option<bool>,
     /// An optional list of server urls that a client can connect to.
     #[builder(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    connect_urls: Option<Vec<String>>,
+    pub(crate) connect_urls: Option<Vec<String>>,
 }
 
 impl ServerInfo {
