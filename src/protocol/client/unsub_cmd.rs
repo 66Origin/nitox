@@ -32,7 +32,7 @@ impl Command for UnsubCommand {
     const CMD_NAME: &'static [u8] = b"UNSUB";
 
     fn into_vec(self) -> Result<Bytes, CommandError> {
-        // Computes the string length of the payload_len by dividing the number par ln(10)
+        // Computes the string length of the payload_len by dividing the number by ln(10)
         let (mm_len, mm) = self.max_msgs.map_or((0, 0), |mm| {
             (((mm + 1) as f64 / std::f64::consts::LN_10).ceil() as usize, mm)
         });
