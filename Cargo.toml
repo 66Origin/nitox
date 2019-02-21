@@ -22,7 +22,7 @@ license = "MIT/Apache-2.0"
 name = "nitox"
 readme = "README.md"
 repository = "https://github.com/YellowInnovation/nitox"
-version = "0.1.10"
+version = "0.1.11"
 
 [[bench]]
 harness = false
@@ -50,6 +50,7 @@ parking_lot = "0.7"
 rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
+stream-cancel = "0.4.4"
 tokio-codec = "0.1"
 tokio-executor = "0.1"
 tokio-tcp = "0.1"

@@ -101,6 +101,8 @@ extern crate tokio_timer;
 extern crate tokio_tls;
 extern crate url;
 
+extern crate stream_cancel;
+
 #[macro_use]
 mod error;
 
