@@ -23,6 +23,7 @@ pub(crate) struct NatsClientMultiplexer {
 }
 
 impl NatsClientMultiplexer {
+    /// Creates the multiplexer from a general, unfiltered stream of events
     pub fn new(stream: NatsStream) -> (Self, mpsc::UnboundedReceiver<Op>) {
         let subs_tx: Arc<RwLock<HashMap<NatsSubscriptionId, SubscriptionSink>>> =
             Arc::new(RwLock::new(HashMap::default()));
@@ -52,7 +53,8 @@ impl NatsClientMultiplexer {
                 }
 
                 future::ok::<(), NatsError>(())
-            }).map(|_| ())
+            })
+            .map(|_| ())
             .map_err(|_| ());
 
         tokio_executor::spawn(work_tx);
@@ -60,6 +62,7 @@ impl NatsClientMultiplexer {
         (NatsClientMultiplexer { subs_tx, other_tx }, other_rx)
     }
 
+    /// Creates a stream for a subscription ID
     pub fn for_sid(&self, sid: NatsSubscriptionId) -> impl Stream<Item = Message, Error = NatsError> + Send + Sync {
         let (tx, rx) = mpsc::unbounded();
         (*self.subs_tx.write()).insert(
@@ -74,6 +77,7 @@ impl NatsClientMultiplexer {
         rx.map_err(|_| NatsError::InnerBrokenChain)
     }
 
+    /// Remove a subscription ID from the multiplexer. Also fuses the stream
     pub fn remove_sid(&self, sid: &str) {
         (*self.subs_tx.write()).remove(sid);
     }

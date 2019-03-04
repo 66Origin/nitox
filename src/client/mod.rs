@@ -8,6 +8,8 @@ type NatsStream = stream::SplitStream<NatsConnection>;
 /// Useless pretty much, just for code semantics
 type NatsSubscriptionId = String;
 
+mod ack_trigger;
+pub(crate) use self::ack_trigger::*;
 mod sender;
 pub(crate) use self::sender::*;
 mod multiplexer;

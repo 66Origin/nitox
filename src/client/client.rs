@@ -10,15 +10,12 @@ use parking_lot::RwLock;
 use std::{
     net::{SocketAddr, ToSocketAddrs},
     str::FromStr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
 use tokio_executor;
 use url::Url;
 
-use super::{NatsClientMultiplexer, NatsClientSender, NatsSink, NatsStream};
+use super::{AckTrigger, NatsClientMultiplexer, NatsClientSender, NatsSink, NatsStream};
 use error::NatsError;
 use net::*;
 use protocol::{commands::*, Op};
@@ -44,10 +41,6 @@ impl NatsClientOptions {
 pub struct NatsClient {
     /// Backup of options
     pub(crate) opts: NatsClientOptions,
-    /// Ack for verbose
-    got_ack: Arc<AtomicBool>,
-    /// Verbose setting
-    verbose: AtomicBool,
     /// Server info
     server_info: Arc<RwLock<Option<ServerInfo>>>,
     /// Stream of the messages that are not caught for subscriptions (only system messages like PING/PONG should be here)
@@ -112,7 +105,11 @@ impl NatsClient {
             .and_then(move |connection| {
                 let (sink, stream): (NatsSink, NatsStream) = connection.split();
                 let (rx, other_rx) = NatsClientMultiplexer::new(stream);
-                let tx = NatsClientSender::new(sink);
+
+                let is_verbose = opts.connect_command.verbose;
+                let trigger = AckTrigger::from(is_verbose);
+                let mut tx = NatsClientSender::new(sink, trigger.clone());
+                tx.set_verbose(is_verbose);
 
                 let (tmp_other_tx, tmp_other_rx) = mpsc::unbounded();
                 let tx_inner = tx.clone();
@@ -121,29 +118,33 @@ impl NatsClient {
                     server_info: Arc::new(RwLock::new(None)),
                     other_rx: Box::new(tmp_other_rx.map_err(|_| NatsError::InnerBrokenChain)),
                     rx: Arc::new(rx),
-                    verbose: AtomicBool::from(opts.connect_command.verbose),
-                    got_ack: Arc::new(AtomicBool::default()),
                     opts,
                 };
 
                 let server_info_arc = Arc::clone(&client.server_info);
-                let ack_arc = Arc::clone(&client.got_ack);
-                let is_verbose = client.verbose.load(Ordering::SeqCst);
 
                 tokio_executor::spawn(
                     other_rx
                         .for_each(move |op| {
+                            debug!(target: "nitox", "Got rest OP from multiplexer: {:?}", op);
                             match op {
                                 Op::PING => {
+                                    debug!(target: "nitox", "Got PING +PING");
                                     tokio_executor::spawn(tx_inner.send(Op::PONG).map_err(|_| ()));
                                     let _ = tmp_other_tx.unbounded_send(op);
                                 }
                                 Op::INFO(server_info) => {
+                                    debug!(target: "nitox", "Got server info");
                                     *server_info_arc.write() = Some(server_info);
                                 }
                                 Op::OK => {
+                                    debug!(target: "nitox", "Got verbose ack +OK");
                                     if is_verbose {
-                                        ack_arc.store(true, Ordering::SeqCst);
+                                        debug!(target: "nitox", "Verbose mode is enabled, pulling up trigger");
+                                        trigger.pull_up();
+                                        debug!(target: "nitox", "Verbose mode trigger is pulled up");
+                                    } else {
+                                        debug!(target: "nitox", "Verbose mode is NOT enabled, that's weird");
                                     }
                                 }
                                 op => {

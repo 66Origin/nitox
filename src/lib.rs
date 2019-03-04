@@ -108,8 +108,6 @@ extern crate prost_derive;
 #[macro_use]
 mod error;
 
-// TODO: Handle verbose mode
-
 pub use self::error::*;
 pub mod codec;
 mod protocol;
